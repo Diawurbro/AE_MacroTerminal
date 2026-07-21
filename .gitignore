@@ -1,0 +1,33 @@
+# --- Secrets -----------------------------------------------------------
+# config.yaml holds the live Discord webhook URL. Ship config.example.yaml
+# instead and let each machine keep its own real copy untracked.
+config.yaml
+
+# --- Environments / build output ---------------------------------------
+.venv/
+venv/
+build/
+dist/
+*.spec.bak
+
+# --- Python ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# --- Runtime data ------------------------------------------------------
+# Run history, auto-captured result screenshots and manual captures are all
+# per-machine. logs/.gitkeep is force-added so the directory still exists.
+logs/*
+!logs/.gitkeep
+screenshots/
+data/stats.db
+
+# --- Stage reference captures ------------------------------------------
+# 1.6 MB frames of a real game screen, regenerated per machine by the
+# dashboard's Screenshot button. The profile JSON that points at them is
+# tracked; the images themselves are not.
+profiles/*.png
+
+# Stray root-level test captures
+/T_*.png

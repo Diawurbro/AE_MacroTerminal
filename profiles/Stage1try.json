@@ -1,0 +1,132 @@
+{
+  "stage": "Stage1try",
+  "reference_image": "profiles\\Untitled_stage_ref.png",
+  "ui_anchors": {
+    "cash_roi": [
+      0.492,
+      0.805,
+      0.547,
+      0.842
+    ],
+    "wave_roi": [
+      0.425,
+      0.033,
+      0.456,
+      0.056
+    ],
+    "upgrade_btn": [
+      0.86,
+      0.42
+    ],
+    "confirm_btn": [
+      0.5,
+      0.72
+    ],
+    "sell_btn": [
+      0.86,
+      0.52
+    ],
+    "result_roi": [
+      0.3,
+      0.35,
+      0.7,
+      0.65
+    ],
+    "priority_btn": [
+      0.86,
+      0.32
+    ],
+    "priority_options": {
+      "first": [
+        0.8,
+        0.2
+      ],
+      "last": [
+        0.86,
+        0.2
+      ],
+      "strongest": [
+        0.8,
+        0.26
+      ],
+      "weakest": [
+        0.86,
+        0.26
+      ],
+      "closest": [
+        0.8,
+        0.32
+      ],
+      "farthest": [
+        0.86,
+        0.32
+      ]
+    }
+  },
+  "steps": [
+    {
+      "id": 1,
+      "action": "place",
+      "x": 0.4396,
+      "y": 0.5454,
+      "slot": 5,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "off"
+    },
+    {
+      "id": 2,
+      "action": "place",
+      "x": 0.4555,
+      "y": 0.4887,
+      "slot": 5,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "off"
+    },
+    {
+      "id": 3,
+      "action": "place",
+      "x": 0.4914,
+      "y": 0.4486,
+      "slot": 1,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "off"
+    },
+    {
+      "id": 4,
+      "action": "place",
+      "x": 0.491,
+      "y": 0.449,
+      "slot": 1,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "max"
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+window:
+  client_width: 1280
+  client_height: 720
+  window_title: "Roblox"
+  window_class: "WINDOWSCLIENT"
+
+# Right-drag top-down technique (HANDOFF 2.22, was Shift Lock in 2.3): zoom
+# fully in (hard clamp), right-button-drag straight down (hard clamp), zoom
+# all the way back out (hard clamp). Every step drives to a hard clamp, so
+# this needs no per-stage tuning at all - same fixed sequence for every stage.
+camera:
+  zoom_in_clamp_ticks: 30      # scroll in this far to guarantee hitting the zoom-in clamp
+  zoom_out_clamp_ticks: 30     # scroll out this far to guarantee hitting the zoom-out clamp
+  pitch_down_clamp_drag: 600   # px to right-drag down to guarantee hitting the pitch clamp
+  drag_step_px: 12
+  drag_step_delay_ms: 8
+
+input:
+  jitter_px: 3
+  jitter_delay_pct: 0.15
+  click_hold_ms: 45
+  step_gap_ms: 180
+
+vision:
+  # How closely the live screen must match the stage reference image before
+  # any step is allowed to run. This is the ONLY guard against a camera that
+  # didn't normalize, and a wrong camera doesn't just shift clicks slightly -
+  # at a shallow angle a click aimed mid-screen hits the ground far away and
+  # units land at the edge of the map (HANDOFF 2.28).
+  # Was 0.92, which no real frame ever reached: a correct camera scored 0.789
+  # on a real run (moving enemies, a ticking wave counter and a changing cash
+  # readout are all inside the compared frame). 0.65 clears that with room to
+  # spare while still being far above a rotated/zoomed camera.
+  # TUNE IT: press "Test camera view" on the dashboard - it prints the score
+  # for a camera you can see is correct. Set this a little below that.
+  ref_match_threshold: 0.65
+  result_match_threshold: 0.85
+  poll_interval_ms: 400
+  tesseract_cmd: ""   # path to tesseract.exe if it's not on PATH
+  # Match score for the post-match "(Click anywhere to close)" caption.
+  # Measured on real captures: reward screens 0.84-1.00, gameplay 0.07-0.16,
+  # so 0.70 sits in a wide gap. Raise only if something in-game false-triggers.
+  reward_match_threshold: 0.70
+
+hotkeys:
+  emergency_stop: "f12"
+  start_stop: "f9"
+
+game:
+  # MOUSE ONLY: nothing in here sends a keystroke to the game (HANDOFF 2.22).
+  # The old game.teleport_key / use_unit_keys / unit_keys settings are gone.
+  #
+  # The unit hotbar, as geometry rather than six fixed points - the bar is
+  # centre-anchored, so every card moves when the loadout size changes.
+  # Measured off a real 1280x720 capture with 6 units: centres 77.4px apart
+  # (0.0605 normalized) at y=650 (0.903), symmetric about the middle.
+  # Set slot_count to match your loadout. `slots` (a list of explicit
+  # [x, y] pairs) overrides the formula entirely if a bar ever doesn't
+  # follow it.
+  hotbar:
+    slot_count: 6
+    center_x: 0.50
+    y: 0.903
+    spacing: 0.0605
+    slots: []
+  # Optional click target for the game's teleport-to-spawn control, if it has
+  # a clickable one. UNSET = the teleport step is skipped, which is fine:
+  # nothing here ever moves the character, so a run that starts at spawn
+  # stays there. This only exists as a recovery path for a character that was
+  # walked away by hand.
+  teleport_btn: []
+  teleport_wait_ms: 1800
+  # Where to click to dismiss a post-match item screen. Those screens say
+  # "click anywhere", so this only needs to avoid the item's own detail card
+  # (bottom-right) - it is never clicked once the reward screens are gone.
+  reward_click_point: [0.5, 0.62]
+  # Auto-press the in-game "Start Game" button at the start of each run/loop.
+  # start_game_btn is the button's normalized [x, y] position in the client
+  # area - tune it if the click misses (the dashboard checkbox toggles it).
+  # Measured off a real 1280x720 capture: the green button spans y 198-229,
+  # so its centre is 0.296. The old 0.32 guess landed at y=230 - just past
+  # the bottom edge, on the dialog border rather than the button.
+  press_start_game: true
+  start_game_btn: [0.50, 0.296]
+  # Settle time after clicking Start Game. Short on purpose: the first
+  # placement is gated on its own verification anyway, so waiting here
+  # only delays the run.
+  start_game_wait_ms: 400
+
+execution:
+  wait_timeout_s: 30        # per-step cash/wave precondition timeout
+  result_timeout_s: 900     # max time to wait for the win/loss banner
+  # A 'place' step KEEPS clicking until the unit is verified on the map or
+  # this long has passed (HANDOFF 2.25). The usual reason a click doesn't
+  # register is "not enough cash yet", which just needs waiting out - so
+  # raise place_timeout_s for an expensive unit placed early. Each retry
+  # re-arms the hotbar slot too, not just the click.
+  place_timeout_s: 45
+  place_retry_interval_ms: 1200
+  # How the placement is verified: watch the patch of map under the marker
+  # until two consecutive reads agree (it stopped moving), then compare that
+  # to how it looked before the click. Reads every place_settle_interval_ms,
+  # giving up on settling after place_settle_reads of them. Lower the
+  # interval for a faster verdict, raise the read count if your stage has
+  # heavy traffic near the placement spots.
+  place_settle_interval_ms: 250
+  place_settle_reads: 6
+  # Settle time after each click, for the unit panel to open (2.26).
+  place_select_wait_ms: 400
+  # Somewhere harmless to park the mouse before judging a placement. An armed
+  # card draws a preview under the cursor, so a cursor left on the marker
+  # would be inside the region being checked. Normalized [x, y], well clear
+  # of the HUD and of any placement spot.
+  cursor_park: [0.02, 0.5]
+  # An upgrade row keeps clicking Upgrade until the unit panel's "Upgrade
+  # N/M" readout actually changes - "nothing happened" is nearly always
+  # "can't afford the next level YET", which is a wait, not a failure
+  # (HANDOFF 2.27). This timeout is only the give-up guard, per level;
+  # hitting it is what "maxed out or never affordable" looks like. Raise it
+  # if a late-game level takes longer than two minutes to afford.
+  upgrade_timeout_s: 120
+  upgrade_retry_interval_ms: 1200
+  upgrade_confirm_wait_ms: 400
+  # "Upgrade to max" stops on its own when a level fails to apply; this is
+  # just the hard bound on how many levels it will ever buy for one unit.
+  # Raise it if a unit can go past 30.
+  max_upgrade_clicks: 30
+  # The camera sequence is re-run this many times before a loop gives up on
+  # matching the reference. Worth more than one try: Roblox has to capture
+  # the mouse for the drag to register and the focus click can be swallowed.
+  camera_attempts: 3
+  # Skip the loop when the camera still doesn't match after those attempts.
+  # ON by default (HANDOFF 2.28) - the alternative is placing units against
+  # coordinates that no longer mean anything. Set false to warn and run
+  # anyway, e.g. while calibrating.
+  abort_on_ref_mismatch: true
+  # Stop the whole run after this many loops in a row that ended before a
+  # single step ran. Without it, an infinite run with a broken camera retries
+  # forever, doing nothing, all night.
+  max_consecutive_aborts: 3
+  # Wait until the game-state detector sees the in-stage HUD before each loop
+  # acts. Needs vision/templates/states/in_stage.png (see vision/game_state.py).
+  # Off until you've captured that template - otherwise it has nothing to match.
+  wait_for_in_stage: false
+  state_wait_timeout_s: 60
+  # Post-match item screens. The executor re-checks for the caption before
+  # every click and stops the moment it's gone, so this is only a runaway
+  # guard - it is NOT the expected number of screens (that varies per run).
+  max_reward_clicks: 15
+  reward_click_interval_ms: 700
+  # Result screen (Victory banner + Next / Repeat Stage / View Party).
+  result_screen_timeout_s: 60
+  auto_repeat: true         # click "Repeat Stage" to start the next loop
+  repeat_wait_ms: 2500      # settle time after Repeat, before the next loop acts
+
+discord:
+  webhook_url: ""   # paste your Discord webhook URL here (keep it out of git)
+  ping_on_fail_streak: 3
+
+paths:
+  profiles: "profiles"
+  logs: "logs"
+  screenshots: "logs/screenshots"          # auto-captured win/loss results
+  manual_screenshots: "screenshots"        # user-triggered "Screenshot" button
+  database: "data/stats.db"

@@ -1,0 +1,138 @@
+{
+  "stage": "Untitled stage",
+  "reference_image": "profiles\\Untitled_stage_ref.png",
+  "ui_anchors": {
+    "cash_roi": [
+      0.492,
+      0.805,
+      0.547,
+      0.842
+    ],
+    "wave_roi": [
+      0.425,
+      0.033,
+      0.456,
+      0.056
+    ],
+    "upgrade_btn": [
+      0.216,
+      0.623
+    ],
+    "sell_btn": [
+      0.126,
+      0.623
+    ],
+    "priority_btn": [
+      0.061,
+      0.623
+    ],
+    "deselect_btn": [
+      0.318,
+      0.325
+    ],
+    "upgrade_level_roi": [
+      0.1586,
+      0.585,
+      0.2766,
+      0.607
+    ],
+    "priority_label_roi": [
+      0.0289,
+      0.6,
+      0.0961,
+      0.645
+    ],
+    "reward_strip_roi": [
+      0.36,
+      0.9,
+      0.64,
+      0.96
+    ],
+    "repeat_btn": [
+      0.375,
+      0.79
+    ],
+    "result_screen_roi": [
+      0.15,
+      0.7,
+      0.7,
+      0.88
+    ],
+    "result_roi": [
+      0.15,
+      0.15,
+      0.37,
+      0.22
+    ],
+    "confirm_btn": [
+      0.5,
+      0.72
+    ]
+  },
+  "steps": [
+    {
+      "id": 1,
+      "action": "place",
+      "x": 0.4902,
+      "y": 0.3858,
+      "slot": 5,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "off"
+    },
+    {
+      "id": 2,
+      "action": "place",
+      "x": 0.5182,
+      "y": 0.3885,
+      "slot": 5,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "off"
+    },
+    {
+      "id": 3,
+      "action": "place",
+      "x": 0.4931,
+      "y": 0.4541,
+      "slot": 1,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "off"
+    },
+    {
+      "id": 4,
+      "action": "upgrade",
+      "x": 0.493,
+      "y": 0.454,
+      "slot": 1,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "max"
+    }
+  ]
+}
