@@ -1333,6 +1333,35 @@ actually fire).
 Both unverified against the live game - needs Tesseract installed for the max
 readout, and one supervised loop to confirm repeat fires on a real win and loss.
 
+### 2.32 The N/M readers never actually worked on a real Tesseract engine
+
+Tesseract got installed on the Windows machine (v5.4.0, UB-Mannheim) and the
+first real read exposed this: `read_fraction` and `read_leading_int` were only
+ever "verified" against a STUBBED engine that handed them pre-split digit
+groups (HANDOFF 2.18/2.12). Against the real engine they were broken, same root
+cause for both - Tesseract returns "N/M" as a SINGLE token, and with a
+digits-only whitelist the slash is stripped so N and M concatenate:
+
+- `read_fraction("Upgrade 0/8")` returned `(None, None)` - `_scan` gave one
+  group `"08"`, never the two it needed. So the 2.31 upgrade-to-max stop, which
+  depends on it, was dead: it would never see N>=M.
+- `read_leading_int("0 / 15")` returned `15`, not `0` - the exact wave-gate
+  desync 2.12 believed it had fixed. Any `wave >= N` with N<=total passes on
+  the first poll.
+
+Fix: a `_read_slashed()` helper reads with the slash KEPT in the whitelist and
+returns the raw "N/M" string; `read_fraction` regexes out the `(d)/(d)` pair
+(last one, so a label like "Upgrade" can't interfere) and `read_leading_int`
+takes the first digit run before the slash. `read_int` (cash) is unchanged - it
+joins groups and has no slash. Verified against rendered captions: read_fraction
+and read_leading_int now correct for 0/8, 3/8, 8/8, "0 / 15", "12 / 15", etc.
+
+Still to check live: `read_int` on a comma cash value ("2,003"). A synthetic
+Arial comma OCR'd as a "1" (-> 21003); the real HUD's comma showed up as a
+group GAP in the 2.12 captures (-> rejoins to 2003), but confirm with the
+Calibrate tab's "Test read cash" on the live HUD - an over-read cash would let
+an underfunded placement through.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**
