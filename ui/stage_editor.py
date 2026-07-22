@@ -85,30 +85,33 @@ def hotbar_slot_count(cfg: dict) -> int:
 
 
 def slot_combo(slot_count: int, value: int | None = None) -> QComboBox:
-    """The 'Unit' picker: which hotbar card this step clicks.
+    """The 'Unit' picker: which hotbar card this step arms.
 
     A dropdown of the slots that actually exist, not a 1-9 spin box - the bar
     holds a fixed number of cards, so free-typing a 9 into a 6-card bar only
-    ever produced a step the run had to skip."""
+    ever produced a step the run had to skip. "none" (slot 0) arms nothing -
+    for a Click step that shouldn't select a unit."""
     cb = QComboBox()
+    cb.addItem("none")
     cb.addItems([str(i) for i in range(1, max(1, slot_count) + 1)])
-    cb.setToolTip("Which hotbar card is clicked to pick this unit before "
-                  "clicking the map. The card list comes from game.hotbar "
-                  "in config.yaml - set slot_count there to match your loadout.")
+    cb.setToolTip("Which hotbar card is armed before clicking the map. 'none' "
+                  "arms nothing (a bare click). The card list comes from "
+                  "game.hotbar in config.yaml - set slot_count to your loadout.")
     if value is not None:
         set_slot_value(cb, value)
     return cb
 
 
 def set_slot_value(cb: QComboBox, value: int):
-    """Select a slot, adding it first if the bar doesn't have that card.
+    """Select a slot, adding it first if the bar doesn't have that card. 0/none
+    means no unit armed.
 
     A profile saved against a bigger loadout can name a slot this config
     doesn't cover. setCurrentText() on a missing entry is a silent no-op, so
     the step would display (and then save) as whatever was already showing -
     quietly rewriting the user's data. Showing the impossible value instead
     lets the Readiness check flag it."""
-    text = str(value)
+    text = "none" if not value else str(value)
     if cb.findText(text) < 0:
         cb.addItem(text)
     cb.setCurrentText(text)
@@ -432,6 +435,7 @@ class StepRow:
 
     # Label -> (Step.action, Step.upgrade_mode).
     WHAT = [("Place", "place", "off"),
+            ("Click", "click", "off"),
             ("Upgrade to N", "upgrade", "off"),
             ("Upgrade to max", "upgrade", "max")]
 
@@ -496,11 +500,12 @@ class StepRow:
         return sp
 
     def _sync_enabled(self):
-        """The count only means something for "Upgrade to N", and the unit
-        only means something for a placement - an upgrade row acts on
-        whatever is already standing at its position."""
+        """The count only means something for "Upgrade to N"; the unit only
+        means something for a placement or a click (an upgrade row acts on
+        whatever is already standing at its position). A click can arm a unit
+        or, with "none", just click."""
         self.sp_times.setVisible(self.cb_what.currentText() == "Upgrade to N")
-        self.cb_unit.setEnabled(self.step.action == "place")
+        self.cb_unit.setEnabled(self.step.action in ("place", "click"))
 
     def set_position(self, x: float, y: float):
         """Marker was dragged - show the new spot without re-entering _apply."""
@@ -519,7 +524,8 @@ class StepRow:
     def _apply(self, *_):
         if self._loading:
             return
-        self.step.slot = int(self.cb_unit.currentText())
+        unit = self.cb_unit.currentText()
+        self.step.slot = 0 if unit == "none" else int(unit)
         label = self.cb_what.currentText()
         for text, action, mode in self.WHAT:
             if text == label:

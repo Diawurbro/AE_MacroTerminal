@@ -1615,6 +1615,26 @@ True (old logic skipped); empty spot False with exactly 2 clicks; clean select
 1 click; the three 2.38 place-loop regressions still green; cropped
 classification still finds the banner, 15.5x faster.
 
+### 2.41 Editor: "none" unit + "Click" action
+
+Two editor features (user request): a step that clicks a spot without selecting
+a unit.
+
+- **Unit dropdown gains "none"** (first entry) → `Step.slot = 0`, i.e. arm no
+  hotbar card. `slot_combo`/`set_slot_value` in ui/stage_editor.py handle it;
+  `_apply` maps the "none" text to slot 0. The Unit column is now editable for
+  `place` AND `click` (still disabled for upgrade rows).
+- **"What to do" gains "Click"** → new `click` action. `core/actions/click.py`
+  `ClickAction`: with Unit = none it's a bare click at the marker (dismiss a
+  popup, hit a stage button, deselect); with Unit = a slot it arms that card
+  then clicks (a place without the verify/retry machinery - rare). Registered
+  in `ACTION_CLASSES`; `data.profile.ACTIONS` gains "click"; `Step.summary` and
+  save/load round-trip it. Readiness's hotbar-slot check only inspects
+  place/ability, so a click/none step isn't flagged.
+- Verified with 17 sim cases (data model, ClickAction arm-vs-bare, slot_combo,
+  StepRow round-trip + action switching, profile persistence) and a rendered
+  editor showing a Click/none row.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**
