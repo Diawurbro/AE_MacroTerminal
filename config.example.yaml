@@ -117,6 +117,10 @@ execution:
   # on one of your placed units - clicking away from a unit deselects it. Tune
   # per stage if a unit sits here; calibrating deselect_btn is the better fix.
   deselect_point: [0.62, 0.25]
+  # How many times to retry the bare-ground deselect click before giving up. One
+  # stuck panel makes every later placement think a unit is already there and skip
+  # it, so a swallowed click is worth a couple more tries.
+  deselect_attempts: 3
   # An upgrade row keeps clicking Upgrade until the unit panel's "Upgrade
   # N/M" readout actually changes - "nothing happened" is nearly always
   # "can't afford the next level YET", which is a wait, not a failure
@@ -139,14 +143,17 @@ execution:
   # coordinates that no longer mean anything. Set false to warn and run
   # anyway, e.g. while calibrating.
   abort_on_ref_mismatch: true
-  # Normalize the camera ONCE per run, on stage entry, then reuse it for every
-  # repeat instead of re-running the sequence each round. Repeat Stage keeps the
-  # same camera and nothing here moves the character, so the view set on entry
-  # holds - and re-normalizing each round is flaky enough that it was corrupting
-  # a good camera and then failing the reference check. Set false to normalize +
-  # verify every round (the old behaviour). If units ever start landing at the
-  # map edge on a later round, the camera drifted: stop and Start again to reset.
-  normalize_camera_once: true
+  # Camera normalization cadence.
+  #   false (default) = normalize + verify on EVERY stage entry, each round -
+  #     "auto camera on enter", so a camera that drifts between rounds is fixed
+  #     automatically. abort_on_ref_mismatch above still refuses to place against
+  #     a camera that won't match, so a flaky re-normalize skips the round rather
+  #     than placing at the map edge.
+  #   true = normalize once on the first entry and reuse it for every repeat
+  #     (fewer camera moves, but a drifted camera on a later round isn't fixed).
+  # Either way the camera is only touched on entry, before Start Game - never
+  # during a match.
+  normalize_camera_once: false
   # Stop the whole run after this many loops in a row that ended before a
   # single step ran. Without it, an infinite run with a broken camera retries
   # forever, doing nothing, all night.

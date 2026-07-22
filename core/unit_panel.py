@@ -83,27 +83,36 @@ class UnitPanel:
             return
 
         # Still open. Fall back to clicking bare ground - the game deselects
-        # when you click away from a unit, and unlike deselect_btn that
-        # doesn't depend on an anchor being calibrated right. Safe because no
-        # hotbar card is ever armed here: arming is immediately followed by
-        # its placement click.
+        # when you click away from a unit, and unlike deselect_btn that doesn't
+        # depend on an anchor being calibrated right. Safe because no hotbar
+        # card is ever armed here: arming is immediately followed by its
+        # placement click.
         #
-        # Its own point, NOT cursor_park: the unit panel is bottom-LEFT (roughly
-        # x 0.01-0.33, y 0.30-0.71), and cursor_park's [0.02, 0.5] lands INSIDE
-        # it - so the "bare ground" click hit the open panel and never closed it,
-        # which left a stale panel that poisoned the next step's selection on the
-        # second loop (the reported "round 2 can't find the unit" bug).
-        # deselect_point defaults clear of that panel; tune it if a stage puts a
-        # unit under it (calibrating deselect_btn is the more reliable fix).
-        self.ctx.drv.click(*rect.to_screen(
-            *self.ctx.execution("deselect_point", [0.62, 0.25])))
-        self.ctx.drv.wait(120)
-        if self.ctx.panel_shows_unit(rect) and not self._warned_deselect:
+        # Retried a few times because ONE stuck panel breaks the whole rest of
+        # the loop: every later "is a unit already here?" check then reads the
+        # leftover panel as "yes", so subsequent placements are skipped without
+        # a click (the reported "not even placing" bug). A swallowed click or a
+        # frame of lag is enough to need a second try.
+        #
+        # deselect_point is its own point, NOT cursor_park: the unit panel is
+        # bottom-LEFT (~x 0.01-0.33, y 0.30-0.71) and cursor_park's [0.02, 0.5]
+        # lands INSIDE it, so that click hit the panel and never closed it.
+        point = self.ctx.execution("deselect_point", [0.62, 0.25])
+        for _ in range(max(1, self.ctx.execution("deselect_attempts", 3))):
+            self.ctx.drv.click(*rect.to_screen(*point))
+            self.ctx.drv.wait(150)
+            if not self.ctx.panel_shows_unit(rect):
+                return
+        if not self._warned_deselect:
             self._warned_deselect = True
             self.ctx.log("The unit panel won't close - deselect_btn looks "
                          "mis-calibrated (Calibrate tab > 'Unit panel close "
-                         "(X)') and clicking bare ground didn't do it either. "
-                         "It will sit over the map.")
+                         "(X)'), and clicking bare ground at "
+                         "execution.deselect_point didn't close it either. It "
+                         "will sit over the map and can make later placements "
+                         "think a unit is already there (they get skipped). Fix: "
+                         "calibrate deselect_btn, or move deselect_point onto "
+                         "empty ground.")
 
     # ---------------- the three action buttons ----------------
 

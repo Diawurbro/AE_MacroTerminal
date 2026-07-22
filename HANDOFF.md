@@ -1474,6 +1474,34 @@ Both reported with screenshots from a real farming run.
   - recalibrating it (Calibrate tab > "Unit panel close (X)") is the more reliable
   fix and makes the fallback moot.
 
+### 2.37 A stuck panel skips every later placement; deselect hardened; camera-on-entry default
+
+Reported: *"the macro isn't even placing, sometimes it moves the cursor but does
+not click."* The log showed steps #2/#3 finishing in ~1s each with no "placed
+after N" line, right after a "unit panel won't close" warning.
+
+- **Diagnosis.** Step #1 placed a unit (panel auto-opens), then `deselect()`
+  failed to close it. Every later step's "is a unit already here?" check
+  (`panel_shows_unit`, the authoritative placement check per 2.26/2.30) then read
+  that ONE leftover panel as "yes", so `_place_until_verified` returned True
+  without ever arming the card or clicking - placements #2, #3 were skipped
+  silently. One stuck panel breaks the entire rest of the loop.
+- **Deselect hardened.** The bare-ground fallback now retries `deselect_point`
+  up to `execution.deselect_attempts` (3) times, checking after each - a
+  swallowed click or a frame of lag no longer leaves the panel stuck. The
+  warning now spells out the consequence (later placements get skipped) and the
+  fix (calibrate `deselect_btn`, or move `deselect_point` onto empty ground).
+  The two reliable fixes are still user-side: `deselect_btn` is mis-calibrated in
+  the reporting profile, and `deselect_point` must be over empty map.
+- **Camera-on-entry is now the default** (`normalize_camera_once: false`),
+  reversing 2.33's default per a direct request ("auto change camera view on
+  enter the stage, without pressing Test camera view"). The camera is
+  normalized+verified on EVERY stage entry now, so a camera that drifts between
+  rounds is corrected automatically; `abort_on_ref_mismatch` still skips a round
+  rather than placing at the map edge if a re-normalize goes bad, which removes
+  2.33's original reason for defaulting to once. Still only touched on entry,
+  before Start Game - never during a match.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**
