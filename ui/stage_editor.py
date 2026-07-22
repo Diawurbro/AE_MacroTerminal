@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem,
     QAbstractItemView, QHeaderView, QTabWidget, QScrollArea,
     QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLabel, QLineEdit,
-    QFileDialog, QMessageBox, QGroupBox, QSplitter,
+    QFileDialog, QMessageBox, QGroupBox, QSplitter, QAbstractSpinBox,
 )
 
 from data.profile import StageProfile, Step, MAX_STEPS
@@ -462,6 +462,9 @@ class StepRow:
         self.sp_times = QSpinBox()
         self.sp_times.setRange(1, 20)
         self.sp_times.setValue(step.times)
+        # No step arrows - on the dark theme they render as a murky block, and
+        # the wheel is filtered out anyway, so it's a plain typed number field.
+        self.sp_times.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.sp_times.setFixedWidth(46)
         self.sp_times.setToolTip("How many levels to buy. Each one is clicked "
                                  "until the panel's level readout actually "
@@ -484,6 +487,7 @@ class StepRow:
         sp.setRange(0.0, 1.0)
         sp.setDecimals(3)
         sp.setSingleStep(0.005)
+        sp.setButtonSymbols(QAbstractSpinBox.NoButtons)   # plain text field, no arrow block
         sp.setValue(value)
         sp.setToolTip("Position on the reference image, 0-1. Clicking the "
                       "image with this row selected sets it.")
