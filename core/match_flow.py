@@ -79,6 +79,30 @@ class MatchFlow:
         varies per run (HANDOFF 2.16)."""
         if not self.rewards.available():
             return True
+
+        # The caption may not be up the instant we arrive here. When the match
+        # end was read from the in-match banner (not the reward screens), the
+        # item screens animate in a moment LATER - so a bare "is it showing?"
+        # check sees nothing, returns "cleared" after 0 clicks, and the reward
+        # screens then play out unclicked, stalling the whole loop (bug 1.1).
+        # Wait a bounded window for the caption OR the result screen to appear.
+        # A loss skips reward screens entirely and goes straight to the result
+        # screen, so that short-circuits the wait immediately.
+        if not self._reward_strip(rect)[0]:
+            def caption_or_result():
+                if self._reward_strip(rect)[0]:
+                    return "reward"
+                if self.rewards.repeat_available() and self._result_screen(rect)[0]:
+                    return "result"
+                return None
+            got = self.ctx.poll_until(
+                caption_or_result,
+                self.ctx.execution("reward_appear_timeout_s", 12))
+            if got != "reward":
+                # Result screen already up (loss / no item screens), or nothing
+                # appeared in the window - nothing to click through either way.
+                return True
+
         cap = self.ctx.execution("max_reward_clicks", 15)
         gap_ms = self.ctx.execution("reward_click_interval_ms", 700)
         point = self.ctx.game("reward_click_point", [0.5, 0.62])
@@ -123,17 +147,27 @@ class MatchFlow:
 
         Re-confirms the result screen immediately before clicking: this button
         sits beside "Back to lobby", so clicking blind on a mistimed frame is
-        how a run ends up out of the stage entirely."""
+        how a run ends up out of the stage entirely.
+
+        Clicks the Repeat Stage button at its TEMPLATE-MATCHED location rather
+        than the fixed repeat_btn anchor: that anchor was measured on the win
+        screen (Repeat is the middle of three), but the loss screen drops
+        "Next Stage" and Repeat shifts left, so a fixed click stalls every loss
+        (bug 1.7). Matching the button finds its real column either way."""
         if not self.ctx.execution("auto_repeat", True):
             return False
         if not self.rewards.repeat_available():
             return False
-        showing, _ = self._result_screen(rect)
+        roi = self.ctx.anchor("result_screen_roi", self.RESULT_SCREEN)
+        img = self.ctx.cap.grab_roi(rect, roi)
+        showing, _, center = self.rewards.result_screen_loc(img)
         if not showing:
             self.ctx.log("Not on the result screen - skipping Repeat.")
             return False
-        if not self.ctx.click_anchor(rect, "repeat_btn"):
-            return False
+        x1, y1 = roi[0], roi[1]
+        sx = int(rect.x + x1 * rect.w + center[0])
+        sy = int(rect.y + y1 * rect.h + center[1])
+        self.ctx.drv.click(sx, sy)
         self.ctx.drv.wait(self.ctx.execution("repeat_wait_ms", 2500))
         self.ctx.log("Clicked Repeat Stage.")
         return True

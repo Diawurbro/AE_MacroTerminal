@@ -42,7 +42,11 @@ if exist "vision\templates\*.png" copy /y "vision\templates\*.png" "dist\run\vis
 copy /y "vision\templates\README.txt" "dist\run\vision\templates\README.txt" >nul
 if exist "vision\templates\states\*.png" copy /y "vision\templates\states\*.png" "dist\run\vision\templates\states\" >nul
 copy /y "vision\templates\states\README.txt" "dist\run\vision\templates\states\README.txt" >nul
-copy /y config.yaml "dist\run\config.yaml" >nul
+if exist config.yaml (
+    copy /y config.yaml "dist\run\config.yaml" >nul
+) else (
+    copy /y config.example.yaml "dist\run\config.yaml" >nul
+)
 
 echo.
 echo ====================================

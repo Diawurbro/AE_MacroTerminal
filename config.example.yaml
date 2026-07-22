@@ -148,6 +148,11 @@ execution:
   # guard - it is NOT the expected number of screens (that varies per run).
   max_reward_clicks: 15
   reward_click_interval_ms: 700
+  # When the match end is read from the in-match banner, the reward screens
+  # animate in a moment later - wait up to this long for the caption (or the
+  # result screen, on a loss with no reward screens) to appear before deciding
+  # there is nothing to click through.
+  reward_appear_timeout_s: 12
   # Result screen (Victory banner + Next / Repeat Stage / View Party).
   result_screen_timeout_s: 60
   auto_repeat: true         # click "Repeat Stage" to start the next loop

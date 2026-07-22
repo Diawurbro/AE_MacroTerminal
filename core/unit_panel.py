@@ -51,15 +51,21 @@ class UnitPanel:
         Compares against ctx.panel_empty (captured once per loop with nothing
         selected) rather than against a snapshot taken a moment ago: a
         relative baseline reads "changed" when a leftover panel CLOSES, i.e.
-        it reports a unit exactly when there isn't one (HANDOFF 2.30)."""
+        it reports a unit exactly when there isn't one (HANDOFF 2.30).
+
+        Waits place_select_wait_ms (400) for the panel to draw before reading
+        it, same as the placement check (place.py) - select()'s 150ms default
+        was too short, so a slow panel draw read as "no unit here" and
+        priority/upgrade/sell skipped a perfectly good unit (bug 1.2)."""
+        settle = self.ctx.execution("place_select_wait_ms", 400)
         if self.ctx.panel_empty is None:
-            self.select(sx, sy)
+            self.select(sx, sy, settle)
             return None
         if self.ctx.panel_shows_unit(rect):
             # Whatever is selected was selected by an earlier step and is not
             # necessarily the unit at this spot - it would answer for it.
             self.deselect(rect)
-        self.select(sx, sy)
+        self.select(sx, sy, settle)
         return self.ctx.panel_shows_unit(rect)
 
     def deselect(self, rect):

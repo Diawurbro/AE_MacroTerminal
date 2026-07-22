@@ -62,6 +62,28 @@ class RewardScreenDetector:
         (~0.50) than the reward caption does (~0.16)."""
         return self._match(roi_img, self.repeat_tpl, self.result_threshold)
 
+    def result_screen_loc(self, roi_img: np.ndarray):
+        """(is_showing, score, center) - center is the (x, y) pixel of the
+        matched Repeat Stage button WITHIN roi_img, or None when not showing.
+
+        The caller clicks that location instead of a fixed anchor: the loss
+        result screen has no "Next Stage", so Repeat Stage shifts left from
+        the win layout (~x0.375 -> ~0.277) and a fixed click lands in the gap
+        (bug 1.7). Matching the button gives its real column either way."""
+        if self.repeat_tpl is None or roi_img is None or roi_img.size == 0:
+            return False, 0.0, None
+        th, tw = self.repeat_tpl.shape[:2]
+        h, w = roi_img.shape[:2]
+        if h < th or w < tw:
+            return False, 0.0, None
+        try:
+            score, loc = vcap.match(roi_img, self.repeat_tpl)
+        except Exception:
+            return False, 0.0, None
+        if score < self.result_threshold:
+            return False, score, None
+        return True, score, (loc[0] + tw // 2, loc[1] + th // 2)
+
     def present(self, roi_img: np.ndarray) -> tuple[bool, float]:
         """(is_showing, score) for a crop of the caption region.
 

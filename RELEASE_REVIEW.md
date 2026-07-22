@@ -165,10 +165,14 @@ crops because the scale won't match the client capture.
 ## 3. Not done yet — release checklist
 
 ### Blockers (fix before anyone else uses it)
-- [ ] Bug 1.1 (reward-screen stall after banner detection)
-- [ ] Bug 1.2 (`select_verified` settle time)
-- [ ] Bug 1.3 (config seeding on fresh clone)
-- [ ] Bug 1.7 (repeat_btn win/loss shift — auto-repeat misses after a loss)
+- [x] Bug 1.1 (reward-screen stall after banner detection) — bounded wait for the
+      caption/result screen to appear before concluding nothing to clear
+      (`reward_appear_timeout_s`, default 12s)
+- [x] Bug 1.2 (`select_verified` settle time) — now waits `place_select_wait_ms`
+- [x] Bug 1.3 (config seeding on fresh clone) — `load_config`/`run.spec`/`build.bat`
+      seed from `config.example.yaml`
+- [x] Bug 1.7 (repeat_btn win/loss shift) — clicks the `result_repeat.png`
+      template-match location, not the fixed anchor (needs WIN capture to confirm)
 - [x] `defeat.png` captured + installed (scale-matched to 1280x720)
 - [ ] Sell flow verified end-to-end (may be a single click, no dialog — confirm)
 - [ ] At least one clean supervised live loop (item 10 above)

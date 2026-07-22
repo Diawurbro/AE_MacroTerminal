@@ -64,12 +64,21 @@ BASE = app_dir()
 def load_config() -> dict:
     path = os.path.join(BASE, "config.yaml")
     if not os.path.exists(path):
-        # First run of the frozen build: seed a config next to the exe.
-        seed = os.path.join(bundle_dir(), "config.yaml")
-        if os.path.exists(seed):
-            shutil.copyfile(seed, path)
+        # Seed a config the first time. Two cases, tried in order:
+        #  - frozen build: config.yaml is bundled next to the unpacked resources.
+        #  - fresh clone (dev): config.yaml is gitignored (holds the webhook URL),
+        #    so only config.example.yaml is on disk. Without this fallback run.bat
+        #    on a clean checkout died with the startup-error box.
+        for seed in (os.path.join(bundle_dir(), "config.yaml"),
+                     os.path.join(BASE, "config.example.yaml"),
+                     os.path.join(bundle_dir(), "config.example.yaml")):
+            if os.path.exists(seed):
+                shutil.copyfile(seed, path)
+                break
         else:
-            raise FileNotFoundError(f"config.yaml not found at {path}")
+            raise FileNotFoundError(
+                f"config.yaml not found at {path}, and no config.example.yaml "
+                "to seed it from")
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 

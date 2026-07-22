@@ -1,13 +1,23 @@
 # PyInstaller spec for Roblox TD Macro
 # Build with:  pyinstaller run.spec --noconfirm
 
+import os
+
 block_cipher = None
+
+# config.yaml is gitignored (holds the webhook URL), so on a clean checkout only
+# config.example.yaml exists - bundle that as the seed (load_config copies it to
+# config.yaml on first run). Bundle a real config.yaml too when the builder has
+# one, so their settings ship.
+_datas = [("config.example.yaml", ".")]
+if os.path.exists("config.yaml"):
+    _datas.append(("config.yaml", "."))
 
 a = Analysis(
     ["main.py"],
     pathex=["."],
     binaries=[],
-    datas=[("config.yaml", ".")],
+    datas=_datas,
     hiddenimports=[
         "win32gui", "win32api", "win32con",
         "mss", "mss.windows",
