@@ -9,12 +9,17 @@ WAIT_TYPES = ["none", "cash", "wave", "delay"]
 MAX_STEPS = 100
 
 # Target priority set right after a 'place' step, if the unit supports it.
-# Only "none" and "first" are CONFIRMED against the real game (the priority
-# button is a cycle, read back via OCR - see Executor._set_priority). The
-# rest is still a guess at the game's actual option set/order; the cycle
-# gives up and warns rather than spinning forever if one of these never
-# matches what the button shows (HANDOFF 2.14/2.18).
-PRIORITY_TYPES = ["none", "first", "last", "strongest", "weakest", "closest", "farthest"]
+# The priority button is a CYCLE, read back via OCR (see UnitPanel.set_priority).
+# CONFIRMED against the real game from live captures (2026-07-22): the button
+# cycles First -> Last -> Closest -> Strongest -> Boss -> Weakest -> Shielded
+# -> Fastest -> None -> (wraps). All nine labels render as plain words and read
+# cleanly. "none" is kept first as the default; the cycle order in this list
+# doesn't have to match the game's - set_priority cycles and re-reads until the
+# label matches, bounded by len(PRIORITY_TYPES), so what matters is that every
+# real option is present (an earlier 7-entry guess with a bogus "farthest"
+# could not reach Shielded/Fastest/None at all).
+PRIORITY_TYPES = ["none", "first", "last", "closest", "strongest",
+                  "boss", "weakest", "shielded", "fastest"]
 
 # Bundled onto a 'place' step: "off" does nothing extra, "times" clicks
 # upgrade_btn Step.times times, "max" clicks it until cash stops moving
@@ -90,14 +95,16 @@ class StageProfile:
     ui_anchors: dict = field(default_factory=lambda: {
         # cash_roi / wave_roi are MEASURED off a real 1280x720 capture
         # (profiles/test_ref.png), not guessed like the rest below.
-        # cash: the gold digits sit at x 632-663, y 584-602 with the coin icon
-        # ending at x~628 - the left edge is deliberately tight to keep that
-        # icon out of the ROI, and the box is only wide enough for ~6 digits
-        # so a busy map background can't feed read_int spurious digit groups.
-        # UNVERIFIED: only ever seen at cash=600, so whether a longer number
-        # grows rightward (assumed) or recentres is still unknown - if a
-        # 5-digit value reads short, widen the left edge and re-test.
-        "cash_roi": [0.492, 0.805, 0.547, 0.842],
+        # cash: the gold "¥ N" readout at bottom-centre, above the hotbar.
+        # VERIFIED across 4/5/6-digit live captures (2026-07-22): the number is
+        # LEFT-anchored just right of the coin icon (which ends ~x0.473) and
+        # grows RIGHTWARD as it gets longer - it does NOT recentre. Measured
+        # spans: "2,003" 0.483-0.528, "113,498" 0.480-0.536. The prior default
+        # started at x0.492 and CLIPPED the leading digit of any 5+-digit value
+        # (read "13,498" for "113,498"), silently breaking every `cash >=` wait.
+        # Left edge now clears the coin; right edge covers 6 digits with margin.
+        # A 7-digit value (rare) would clip on the right - widen then if seen.
+        "cash_roi": [0.474, 0.807, 0.552, 0.840],
         # wave: covers the whole "<current> / <total>" text but starts just
         # right of the compass icon (x~543). Reading it needs
         # ocr.read_leading_int, NOT read_int - see that function's docstring.
