@@ -62,6 +62,14 @@ class UnitPanel:
         and reads as "no unit here" - recovered with one more click, which
         re-selects it.
 
+        The recovery click is UNCONDITIONAL on a False first read - it used to
+        be gated on "was a panel showing before the click", but that read
+        can't tell "closed" from "still selected but mis-read" (a mis-aimed
+        deselect can collapse the panel without deselecting, and the region
+        then reads empty). That gap made the upgrade row right after a
+        placement toggle its own just-placed unit off and skip with "no unit"
+        (HANDOFF 2.40). An empty spot just pays one extra harmless click.
+
         Waits place_select_wait_ms (400) for the panel to draw before reading
         it, same as the placement check (place.py) - a slow panel draw used to
         read as "no unit here" (bug 1.2)."""
@@ -69,16 +77,13 @@ class UnitPanel:
         if self.ctx.panel_empty is None:
             self.select(sx, sy, settle)
             return None
-        was_open = self.ctx.panel_shows_unit(rect)
         self.select(sx, sy, settle)
         if self.ctx.panel_shows_unit(rect):
             return True
-        if was_open:
-            # May have toggled OFF the very unit being selected - one more
-            # click re-selects it. An empty spot stays empty (correct False).
-            self.select(sx, sy, settle)
-            return self.ctx.panel_shows_unit(rect)
-        return False
+        # May have toggled OFF the very unit being selected - one more click
+        # re-selects it. An empty spot stays empty (correct False).
+        self.select(sx, sy, settle)
+        return self.ctx.panel_shows_unit(rect)
 
     def deselect(self, rect):
         """Close the panel so it stops covering the map before the next

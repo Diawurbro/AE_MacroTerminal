@@ -43,10 +43,32 @@ class ResultDetector:
         return vcap.load(path) if os.path.exists(path) else None
 
     def classify_frame(self, frame: np.ndarray, result_roi: list[float]) -> str | None:
-        """Returns 'win' | 'loss' | None for a single frame."""
+        """Returns 'win' | 'loss' | None for a single frame.
+
+        The template path matches inside result_roi (+ margin), not the full
+        frame: this runs every poll for the entire match (the longest loop of
+        a run), and two full-frame matchTemplate calls per poll burned enough
+        CPU to make the whole app feel slow (RELEASE_REVIEW 1.6). The banner
+        templates were cut from inside that region; if the ROI is ever mis-set
+        the banner check degrades but match end is still caught by the reward
+        caption / result screen signals (HANDOFF 2.31)."""
         if self.victory is not None and self.defeat is not None:
-            return self._template(frame)
+            return self._template(self._crop(frame, result_roi))
         return self._color_ratio(frame, result_roi)
+
+    @staticmethod
+    def _crop(frame: np.ndarray, roi, margin: float = 0.06) -> np.ndarray:
+        """result_roi expanded by `margin` (normalized), clamped to the frame.
+        Falls back to the full frame when the ROI is missing/degenerate."""
+        if not roi or len(roi) != 4:
+            return frame
+        h, w = frame.shape[:2]
+        x1 = max(0, int((roi[0] - margin) * w))
+        y1 = max(0, int((roi[1] - margin) * h))
+        x2 = min(w, int((roi[2] + margin) * w))
+        y2 = min(h, int((roi[3] + margin) * h))
+        crop = frame[y1:y2, x1:x2]
+        return crop if crop.size else frame
 
     def classify_result_screen(self, frame: np.ndarray) -> str:
         """Win/loss on a frame the caller has ALREADY confirmed is the result

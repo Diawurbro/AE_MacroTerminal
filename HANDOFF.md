@@ -1578,6 +1578,43 @@ spots, and the panel checks false-positived (see cursor_park below).
   normalize once and proceed; unfixable -> False (loop aborts pre-Start);
   no reference -> no-op.
 
+### 2.40 Upgrade-after-place toggle skip (recovery now unconditional) + match-wait CPU
+
+Reported: `#3 placed after 7 attempts` then, same second, `#4: no unit at
+0.471, 0.592 - skipping` - an upgrade row skipping the unit its own placement
+verified moments earlier. The user's diagnosis was right: clicking an
+already-selected unit closes its info panel. The full chain:
+
+1. #3's placement leaves the unit AUTO-SELECTED; the end-of-step deselect
+   clicks the mis-calibrated deselect_btn, which can hit some other panel
+   control - the upgrade_level_roi read then says "closed" while the game
+   still has the unit SELECTED.
+2. #4's select click TOGGLES that still-selected unit OFF; the first read is
+   correctly False - and 2.38's recovery click never ran because it was gated
+   on "was a panel showing before the click", which read False in step 1.
+
+**The gate was the bug: the panel-state read cannot distinguish "closed" from
+"selected but mis-read", so recovery can't be conditioned on it.** The
+re-select click in `select_verified` and place's `_unit_is_there` is now
+UNCONDITIONAL on a False first read - correct in every case (re-selects a
+toggled-off unit; empty ground stays empty), costing one extra harmless click
+only on the False path.
+
+**Performance ("the program is slow sometimes")**: `wait_for_match_end` - the
+longest loop of a run - called `classify_frame`, which template-matched
+victory.png AND defeat.png against the FULL 1280x720 frame every 400ms for the
+entire match: measured 115ms per poll, i.e. ~30% of a core burned constantly
+while a match plays. Now matches inside `result_roi` + 6% margin: 7.4ms per
+poll (15.5x). RELEASE_REVIEW 1.6 closed. `classify_result_screen` (one-shot)
+stays full-frame. Also `StageSetup.reference_score` now caches the loaded
+reference image per path - it used to imread from disk on every call, and 2.39
+put it inside polling loops.
+
+Verified (8 sim cases): the exact selected-but-reads-closed state recovers to
+True (old logic skipped); empty spot False with exactly 2 clicks; clean select
+1 click; the three 2.38 place-loop regressions still green; cropped
+classification still finds the banner, 15.5x faster.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

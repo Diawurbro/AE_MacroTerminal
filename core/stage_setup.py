@@ -16,6 +16,10 @@ class StageSetup:
         self.camera = camera
         self.state_detector = state_detector
         self.panel = panel
+        # reference_score is called in polling loops (repeat verify, camera
+        # attempts) - cache the loaded reference so each poll isn't a disk read.
+        self._ref_path = None
+        self._ref_img = None
 
     def wait_for_in_stage(self, rect) -> bool:
         """Optional gate (execution.wait_for_in_stage): block until the game-
@@ -64,11 +68,17 @@ class StageSetup:
 
     def reference_score(self, rect) -> float | None:
         """How closely the live screen matches the stage reference image, or
-        None when there's no reference to compare against."""
+        None when there's no reference to compare against. The reference is
+        cached per path - this runs inside polling loops."""
         ref_path = self.ctx.profile.reference_image
         if not ref_path or not os.path.exists(ref_path):
             return None
-        return vcap.similarity(self.ctx.cap.grab(rect), vcap.load(ref_path))
+        if self._ref_img is None or self._ref_path != ref_path:
+            self._ref_img = vcap.load(ref_path)
+            self._ref_path = ref_path
+            if self._ref_img is None:
+                return None
+        return vcap.similarity(self.ctx.cap.grab(rect), self._ref_img)
 
     def normalize_and_verify(self, rect) -> bool:
         """Get the camera to its clamps and CONFIRM it landed there, retrying

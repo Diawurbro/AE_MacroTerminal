@@ -89,21 +89,21 @@ class PlaceAction(StepAction):
         later placement being skipped (HANDOFF 2.38). The cost of clicking
         first: a click on this spot's OWN already-selected unit toggles its
         panel off and reads as empty - recovered with one more click, which
-        re-selects it (only attempted when a panel was open going in, so an
-        empty spot doesn't pay double clicks)."""
+        re-selects it. The recovery is UNCONDITIONAL on a False first read:
+        gating it on "was a panel showing before" trusted a read that can't
+        tell "closed" from "selected but mis-read", and that gap skipped
+        real units (HANDOFF 2.40). An empty spot pays one extra harmless
+        click per check."""
         if use_panel:
-            was_open = self.ctx.panel_shows_unit(rect)
             self.ctx.drv.click(target.sx, target.sy)
             self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
             self._park_cursor(rect)
             if self.ctx.panel_shows_unit(rect):
                 return True
-            if was_open:
-                self.ctx.drv.click(target.sx, target.sy)
-                self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
-                self._park_cursor(rect)
-                return self.ctx.panel_shows_unit(rect)
-            return False
+            self.ctx.drv.click(target.sx, target.sy)
+            self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
+            self._park_cursor(rect)
+            return self.ctx.panel_shows_unit(rect)
 
         self._park_cursor(rect)
         after, settled = self._settle(rect, roi)
