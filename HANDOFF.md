@@ -1544,6 +1544,40 @@ stays a right-drag (its Shift-Lock argument only ever applied to the camera).
   UNCALIBRATED, and the place loop placing exactly 1 unit on auto-select,
   non-auto-select, and leftover-panel-at-start games (the old skip bug).
 
+### 2.39 Repeat Stage RESETS the camera - repeats now verify, and normalize on mismatch
+
+Round 2 placed nothing while claiming otherwise: #1/#2 "verified" in ~2s, then
+every upgrade step found `no unit at ...`, the game sat at wave 3 with 33
+enemies, 3 health and ¥2,837 unspent. Root cause: 2.33's `normalize_camera_once`
+reuse branch skipped the reference VERIFY along with the normalize (its log line
+was all it did), and its core assumption - "Repeat Stage keeps the same camera" -
+is **wrong**: restarting the stage respawns the character, and Roblox resets the
+camera on respawn (2.3 documents this). Round 2 therefore ran on the default
+angled camera with zero checking; at that angle every profile coordinate hits a
+different world position (2.28), so the placement clicks landed on wrong/invalid
+spots, and the panel checks false-positived (see cursor_park below).
+
+- **`StageSetup.verify_or_renormalize(rect)`** - repeats VERIFY every round
+  (cheap, instant, not flaky) and re-run the normalize sequence only when the
+  reference stopped matching. Polls the score up to
+  `execution.repeat_ref_wait_s` (8s) first, because right after Repeat the
+  stage can still be fading in and a premature "mismatch" would normalize
+  against a loading screen. On real mismatch it calls `normalize_and_verify`
+  (existing retry/abort semantics); an unfixable camera aborts the loop BEFORE
+  Start Game, which is correct - placing against a wrong camera is worse.
+  The executor's entry/repeat branches now share one abort path. 2.33's
+  "the view set on entry holds" claim is superseded.
+- **`cursor_park` moved `[0.02, 0.5]` -> `[0.85, 0.10]`.** The old point sat
+  INSIDE the bottom-left unit panel area; with a still-armed card, the ghost
+  preview follows the parked cursor and can bleed into `upgrade_level_roi`,
+  faking "a unit is selected" during placement verification - one source of the
+  round-2 false positives. Top-right is hover-only UI, far from every read
+  region.
+- Verified with a stubbed StageSetup (5 cases): camera held -> no normalize;
+  fade-in recovering within the wait -> no normalize; reset camera ->
+  normalize once and proceed; unfixable -> False (loop aborts pre-Start);
+  no reference -> no-op.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

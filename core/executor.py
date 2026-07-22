@@ -166,35 +166,37 @@ class Executor(QThread):
         self.setup.teleport_to_spawn(rect)
         self._check_stop()
 
-        # Normalize the camera ONCE per run (on stage entry), then reuse it for
-        # every repeat. Repeat Stage restarts the same stage without moving the
-        # camera and nothing here moves the character, so the top-down view set
-        # on entry holds - and re-running the normalize each round only risks
-        # its known flakiness corrupting a good camera, then failing the verify
-        # and aborting the loop. Set execution.normalize_camera_once false to go
-        # back to per-round normalize+verify. `_camera_set` (not loop_no) gates
-        # it, so a first attempt that aborts still retries on the next loop.
+        # Camera: full normalize+verify on the first entry; on repeats VERIFY
+        # every time and re-run the flaky normalize only when the verify says
+        # the camera actually moved (verify_or_renormalize). Repeats can't just
+        # trust the entry camera: Repeat Stage respawns the character and
+        # Roblox resets the camera on respawn - a round that skipped the check
+        # ran on the default angled view and placed nothing where it thought
+        # (HANDOFF 2.39). Set execution.normalize_camera_once false to run the
+        # full normalize+verify every round instead. `_camera_set` (not
+        # loop_no) gates the entry path, so a first attempt that aborts still
+        # retries on the next loop.
         normalize_once = self.ctx.execution("normalize_camera_once", True)
         if not self._camera_set or not normalize_once:
-            if self.setup.normalize_and_verify(rect):
-                self._camera_set = True
-            elif self.ctx.execution("abort_on_ref_mismatch", True):
-                self.log.emit(
-                    "Skipping this loop - running steps against a camera that "
-                    "doesn't match the reference places units in the wrong "
-                    "spots (often at the far edge of the map). Fix the camera, "
-                    "re-capture the reference, or lower "
-                    "vision.ref_match_threshold if the score above looks "
-                    "right for a correct camera.")
-                record("abort")
-                return False
-            else:
-                self.log.emit("WARNING: camera/reference mismatch and "
-                              "execution.abort_on_ref_mismatch is off - "
-                              "continuing, but every step coordinate is suspect.")
+            camera_ok = self.setup.normalize_and_verify(rect)
         else:
-            self.log.emit("Reusing the camera set on stage entry - not "
-                          "re-normalizing (execution.normalize_camera_once).")
+            camera_ok = self.setup.verify_or_renormalize(rect)
+        if camera_ok:
+            self._camera_set = True
+        elif self.ctx.execution("abort_on_ref_mismatch", True):
+            self.log.emit(
+                "Skipping this loop - running steps against a camera that "
+                "doesn't match the reference places units in the wrong "
+                "spots (often at the far edge of the map). Fix the camera, "
+                "re-capture the reference, or lower "
+                "vision.ref_match_threshold if the score above looks "
+                "right for a correct camera.")
+            record("abort")
+            return False
+        else:
+            self.log.emit("WARNING: camera/reference mismatch and "
+                          "execution.abort_on_ref_mismatch is off - "
+                          "continuing, but every step coordinate is suspect.")
 
         self._check_stop()
         self.setup.press_start_game(rect)
