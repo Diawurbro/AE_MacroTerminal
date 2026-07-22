@@ -59,14 +59,28 @@ class MatchFlow:
                 if showing:
                     self.ctx.log(f"Match over - reward screens are up "
                                  f"(match {score:.2f}).")
-                    return "rewards"
+                    return "ended"
+            # The result screen itself is the most reliable end-of-match
+            # signal: its Repeat Stage button is present on BOTH win and loss
+            # and matches ~1.0, where the win/loss banners can be scale- or
+            # timing-sensitive. Without this a loss that shows no reward
+            # screens and whose defeat banner matches poorly would sit here
+            # until result_timeout_s and never repeat.
+            if self.rewards.repeat_available():
+                showing, score = self._result_screen(rect)
+                if showing:
+                    self.ctx.log(f"Match over - result screen is up "
+                                 f"(match {score:.2f}).")
+                    return "ended"
             return None
 
         got = self.ctx.poll_until(check, self.ctx.execution("result_timeout_s", 900))
         if got is None:
             self.ctx.log("Timed out waiting for the match to end.")
             return None
-        return None if got == "rewards" else got
+        # "ended" = match is over but not banner-classified; the result screen
+        # read (read_result_screen) names the win/loss.
+        return None if got == "ended" else got
 
     def clear_reward_screens(self, rect) -> bool:
         """Click through the post-match item screens until the result screen

@@ -1301,6 +1301,38 @@ per-step baseline, a leftover panel and a mid-transition start each place
 to clear the panel; a clean start still places exactly 1; and the baseline
 capture waits out a 2-frame transition instead of recording it.
 
+### 2.31 Upgrade-to-max stops at the real max (OCR), and match-end/repeat got a reliable third signal
+
+Two reports in one: *"macro not stop after done upgrade to max"* and *"add
+repeat stage system"* (an auto-repeat already existed - the ask was to make it
+actually fire).
+
+- **Upgrade-to-max hammered a maxed unit for the full timeout.** `upgrade_once`
+  confirms a level bought by a pixel-diff of the "Upgrade N/M" caption, which
+  cannot tell "maxed out" (will NEVER change) from "can't afford the next level
+  yet" (changes once income arrives) - both read as "nothing changed". So a unit
+  that was already max got its dead Upgrade button clicked every ~1.6s for the
+  whole `upgrade_timeout_s` (120s) before the loop gave up. Fix:
+  `UnitPanel._read_level()` reads the N/M caption via `ocr.read_fraction`, and
+  `upgrade_max`/`upgrade_times` check it at the top of each iteration - N>=M
+  stops immediately. The user chose the OCR route (over a shorter blind
+  timeout), so this needs Tesseract; without it, it falls back to the old
+  pixel-diff give-up unchanged. The pixel-diff still confirms each individual
+  buy - OCR is only the max detector.
+- **Match-end detection now also triggers on the result screen itself.**
+  `wait_for_match_end` watched only the win/loss banner (scale/timing sensitive)
+  and the reward caption. A loss shows no reward screens, so if its `defeat.png`
+  matched poorly the loop sat until `result_timeout_s` (15 min) and never
+  repeated. Added the result screen (its Repeat Stage button, `result_repeat.png`,
+  matches ~1.0 on BOTH win and loss) as a third end-of-match signal. Combined
+  with the same session's bug-1.1 fix (bounded wait for the caption/result
+  screen before "nothing to clear") and bug-1.7 fix (click Repeat at the
+  template-matched column, not the fixed win-layout anchor), the repeat loop now
+  closes on a win and a loss. Repeat uses templates only - no Tesseract needed.
+
+Both unverified against the live game - needs Tesseract installed for the max
+readout, and one supervised loop to confirm repeat fires on a real win and loss.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**
