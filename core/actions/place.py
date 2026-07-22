@@ -19,12 +19,10 @@ class PlaceAction(StepAction):
             self.ctx.log(f"#{step.id} place skipped - hotbar slot {step.slot} "
                          "has no position.")
             return
-        # Start from nothing selected. Everything below reads "a unit is
-        # selected" as "a unit is standing on THIS spot", so a panel left open
-        # by an earlier step - belonging to some other unit - would answer for
-        # it and skip the placement entirely (HANDOFF 2.30).
-        if self.ctx.panel_shows_unit(rect):
-            self.panel.deselect(rect)
+        # No deselect-first for a leftover panel (HANDOFF 2.38): the check
+        # click in _unit_is_there resolves it by itself - clicking an empty
+        # spot deselects, clicking a unit switches the panel to it - without
+        # depending on deselect_btn being calibrated.
         if not self._place_until_verified(step, rect, target):
             return
         if step.priority != "none" or step.upgrade_mode != "off":
@@ -81,20 +79,31 @@ class PlaceAction(StepAction):
     # ---------------- the retry loop ----------------
 
     def _unit_is_there(self, rect, target: Target, use_panel, roi, baseline) -> bool:
-        """Is a unit standing on this spot? NEVER places anything.
+        """Is a unit standing on this spot? NEVER places anything (no card is
+        armed when this runs).
 
-        Reads the panel BEFORE clicking, because the game selects a unit it
-        has just placed: on that path the panel is already open, and clicking
-        the unit again would toggle the selection back off and hide the very
-        evidence being looked for (HANDOFF 2.29). Only if nothing is selected
-        does it click once to try to select whatever is there."""
+        Clicks the spot and reads the panel - clicking a unit opens/switches
+        to its panel, clicking empty ground deselects whatever was open. The
+        old version returned True WITHOUT clicking whenever any panel was
+        open, which turned one leftover panel (a failed deselect) into every
+        later placement being skipped (HANDOFF 2.38). The cost of clicking
+        first: a click on this spot's OWN already-selected unit toggles its
+        panel off and reads as empty - recovered with one more click, which
+        re-selects it (only attempted when a panel was open going in, so an
+        empty spot doesn't pay double clicks)."""
         if use_panel:
-            if self.ctx.panel_shows_unit(rect):
-                return True
+            was_open = self.ctx.panel_shows_unit(rect)
             self.ctx.drv.click(target.sx, target.sy)
             self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
             self._park_cursor(rect)
-            return self.ctx.panel_shows_unit(rect)
+            if self.ctx.panel_shows_unit(rect):
+                return True
+            if was_open:
+                self.ctx.drv.click(target.sx, target.sy)
+                self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
+                self._park_cursor(rect)
+                return self.ctx.panel_shows_unit(rect)
+            return False
 
         self._park_cursor(rect)
         after, settled = self._settle(rect, roi)
@@ -158,6 +167,18 @@ class PlaceAction(StepAction):
             self.ctx.drv.click(target.sx, target.sy)
             self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
             placed += 1
+            # Fast path: placing auto-selects the new unit, so the panel
+            # lighting up right after OUR placement click is the verification.
+            # Safe to trust: the check that preceded this click confirmed
+            # nothing was selected, so a lit panel can only be the unit just
+            # placed. Skips the next check's select-click and the toggle-off
+            # recovery it would need (HANDOFF 2.38).
+            if use_panel:
+                self._park_cursor(rect)
+                if self.ctx.panel_shows_unit(rect):
+                    if placed > 1:
+                        self.ctx.log(f"#{step.id} placed after {placed} attempts.")
+                    return True
 
         if use_panel:
             why = "most likely never affordable"

@@ -1505,6 +1505,45 @@ after N" line, right after a "unit panel won't close" warning.
   per-round re-normalize and accepts that a mismatched round is skipped. The
   camera is only ever touched on entry, before Start Game - never during a match.
 
+### 2.38 Keybinds are back for unit actions, and selection switches by clicking
+
+Two changes in one, both from live farming evidence, both user-requested. This
+PARTIALLY REVERSES 2.22 ("no keystrokes"), deliberately: the user reported the
+hotbar sometimes not responding to clicks - the card never arms, the placement
+stalls, the run delays and loses - and asked for keybinds. A keypress is atomic;
+it can't land a few px off a card or get eaten by an overlay. 2.22's reasons no
+longer bind: the "t" teleport collision died with teleport_key, and the camera
+stays a right-drag (its Shift-Lock argument only ever applied to the camera).
+
+- **`game.use_unit_keys` (default true) + `game.unit_keys`** are reintroduced:
+  `Hotbar.select()` taps the slot's number key (1-9, bounded by slot_count;
+  geometry/`position()` kept for the click fallback and the slot-validity
+  check), and `UnitPanel.action()` taps [T] Upgrade / [X] Sell / [R] Priority
+  (badges measured in 2.14). `use_unit_keys: false` restores clicking. An
+  unknown key logs and falls back to the click. Nothing else sends keys; the
+  macro's own F9/F12 hotkeys are unrelated.
+- **Selection is click-to-switch, no deselect-first** (user observation:
+  clicking unit B while A's panel is open switches the panel straight to B;
+  clicking empty ground deselects). `select_verified` and place's
+  `_unit_is_there` no longer deselect or blind-trust an open panel - they click
+  the target spot and read. This removes the deselect_btn/deselect_point
+  dependency from the placement-verification critical path, which was the root
+  of the skipped-placement failures (2.37). The one trap - clicking the SAME
+  already-selected unit toggles its panel OFF - is recovered with one more
+  click (re-selects), attempted only when a panel was open going in.
+- **Placement fast path**: the check preceding a placement click confirms
+  nothing is selected, so the panel lighting up right after OUR click can only
+  be the just-placed unit (auto-select) - verified on the spot, no extra
+  select-click, no toggle dance.
+- `deselect()` itself is unchanged and still used for end-of-step map
+  clearance (the panel covers bottom-left map). Calibrating deselect_btn is
+  still recommended, but nothing critical depends on it anymore.
+- Verified with a stubbed driver + simulated game (12 cases): key taps vs
+  clicks on both paths, out-of-range slots refused with no input, toggle-off
+  recovery, leftover-panel + empty spot correctly False with deselect_btn
+  UNCALIBRATED, and the place loop placing exactly 1 unit on auto-select,
+  non-auto-select, and leftover-panel-at-start games (the old skip bug).
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

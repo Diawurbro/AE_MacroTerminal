@@ -47,8 +47,17 @@ hotkeys:
   start_stop: "f9"
 
 game:
-  # MOUSE ONLY: nothing in here sends a keystroke to the game (HANDOFF 2.22).
-  # The old game.teleport_key / use_unit_keys / unit_keys settings are gone.
+  # Drive unit actions with the game's own keybinds instead of clicking:
+  # number keys 1-6 arm hotbar slots, and the unit panel shows [T] Upgrade,
+  # [X] Sell, [R] Priority. Keys are atomic - a hotbar card click that lands
+  # a few px off or gets eaten by an overlay stalls a placement; a keypress
+  # can't (HANDOFF 2.38, reversing 2.22 after live click-drop failures).
+  # false = click the measured positions instead (the old behaviour).
+  use_unit_keys: true
+  unit_keys:
+    upgrade: "t"
+    sell: "x"
+    priority: "r"
   #
   # The unit hotbar, as geometry rather than six fixed points - the bar is
   # centre-anchored, so every card moves when the loadout size changes.

@@ -53,20 +53,32 @@ class UnitPanel:
         relative baseline reads "changed" when a leftover panel CLOSES, i.e.
         it reports a unit exactly when there isn't one (HANDOFF 2.30).
 
+        No deselect-first (HANDOFF 2.38): clicking unit B while A's panel is
+        open SWITCHES the panel to B, and clicking empty ground deselects - so
+        the click itself resolves a leftover panel either way, without
+        depending on deselect_btn / deselect_point being calibrated (the
+        dependency behind the skipped-placement failures). The one trap is
+        clicking the SAME already-selected unit, which toggles its panel OFF
+        and reads as "no unit here" - recovered with one more click, which
+        re-selects it.
+
         Waits place_select_wait_ms (400) for the panel to draw before reading
-        it, same as the placement check (place.py) - select()'s 150ms default
-        was too short, so a slow panel draw read as "no unit here" and
-        priority/upgrade/sell skipped a perfectly good unit (bug 1.2)."""
+        it, same as the placement check (place.py) - a slow panel draw used to
+        read as "no unit here" (bug 1.2)."""
         settle = self.ctx.execution("place_select_wait_ms", 400)
         if self.ctx.panel_empty is None:
             self.select(sx, sy, settle)
             return None
-        if self.ctx.panel_shows_unit(rect):
-            # Whatever is selected was selected by an earlier step and is not
-            # necessarily the unit at this spot - it would answer for it.
-            self.deselect(rect)
+        was_open = self.ctx.panel_shows_unit(rect)
         self.select(sx, sy, settle)
-        return self.ctx.panel_shows_unit(rect)
+        if self.ctx.panel_shows_unit(rect):
+            return True
+        if was_open:
+            # May have toggled OFF the very unit being selected - one more
+            # click re-selects it. An empty spot stays empty (correct False).
+            self.select(sx, sy, settle)
+            return self.ctx.panel_shows_unit(rect)
+        return False
 
     def deselect(self, rect):
         """Close the panel so it stops covering the map before the next
@@ -119,14 +131,23 @@ class UnitPanel:
     def action(self, rect, name: str):
         """Trigger the selected unit's Upgrade / Sell / Priority control.
 
-        Clicks the measured ui_anchors position. The panel does print a
-        keybind badge on each button ([T]/[X]/[R]) and there used to be a
-        game.use_unit_keys escape hatch that pressed those instead; it's gone
-        (HANDOFF 2.22) - this macro sends no keystrokes to the game at all
-        now, so there is one code path here and it's the one that gets
-        exercised on every run.
+        Default (game.use_unit_keys, HANDOFF 2.38): tap the control's own
+        keybind - the panel prints one on each button ([T] Upgrade, [X] Sell,
+        [R] Priority, measured in 2.14). A keypress can't land a few px off
+        the button or get eaten by an overlay the way a click can, which
+        stalled real runs. Falls back to clicking the measured ui_anchors
+        position when keys are off or the key isn't mapped.
 
         Requires a unit to already be selected; does nothing otherwise."""
+        if self.ctx.game("use_unit_keys", True):
+            key = (self.ctx.game("unit_keys", {}) or {}).get(name)
+            if key:
+                try:
+                    self.ctx.drv.tap(str(key))
+                    return
+                except KeyError:
+                    self.ctx.log(f"unit_keys.{name} = {key!r} isn't a known "
+                                 "key - clicking the button instead.")
         self.ctx.click_anchor(rect, f"{name}_btn")
 
     # ---------------- priority ----------------
