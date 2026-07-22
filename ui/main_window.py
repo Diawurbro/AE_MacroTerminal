@@ -11,6 +11,7 @@ can't cover both docks without also covering the game. MainWindow owns it so
 main.py still reaches everything through `self.window` (`.log`, `.log_window`).
 """
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 
 from ui.panels import (
@@ -39,6 +40,10 @@ class LogWindow(QWidget):
         super().__init__()
         self.setWindowTitle("TD Macro - Log")
         self.setObjectName("logRoot")
+        # Frameless to match the mock - the dock is auto-positioned under the
+        # game, so an OS title bar would only add chrome the design doesn't have.
+        # It closes with MainWindow (which owns it), so it needs no close button.
+        self.setWindowFlags(Qt.FramelessWindowHint)
         self.setStyleSheet(DASHBOARD_QSS)
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -50,6 +55,10 @@ class MainWindow(QWidget):
         super().__init__()
         self.setWindowTitle("TD Macro")
         self.setObjectName("dashRoot")
+        # Frameless to match the mock. The column is auto-docked to the right of
+        # the game; its own Exit button (and Alt+F4 / taskbar) closes the app,
+        # so it needs no title bar. closeEvent takes the log strip down with it.
+        self.setWindowFlags(Qt.FramelessWindowHint)
         self.setStyleSheet(DASHBOARD_QSS)
         # App-wide: the mouse wheel must never change a spin box / combo value.
         install_no_wheel_filter()
