@@ -1426,6 +1426,28 @@ and signals, so no run logic changed.
 Kept on a branch so the working bottom-bar build stays on `main` until this is
 verified live (attach, confirm the docks frame the game with no overlap).
 
+### 2.35 Stage editor rethemed to Nocturne (Stage Editor.html)
+
+The editor already shared `DASHBOARD_QSS`, so this was colour/label polish to match
+the `Stage Editor.html` mock, no structure or behaviour change:
+- Marker colours are the mock's Nocturne set: placement `#9184D9` (accent),
+  upgrade `#D9A45C`, selected-ring `#D2CEFD`; calibration overlay cyan `#5CC2D9`;
+  canvas ground `#050507`. The legend picks these up automatically.
+- "Stage" label is muted (not a section head); "THIS RUN" and the table headers
+  (`# X Y UNIT WHAT TO DO`) are upper-cased in code (Qt QSS has no text-transform).
+- `QHeaderView::section` is now transparent with just a bottom divider (was a
+  filled block). The status line defaults to accent-300, level still overrides.
+- Editor window keeps its OS title bar (the mock draws a custom one) - it's a
+  user-moved floating window, so a draggable frame is more practical than
+  frameless; a deliberate, minor deviation.
+
+**Not done - the dashboard "Console + Current Process" split** from the updated
+README: the Console is specced as a separate raw executor trace (window-find
+results, coordinates, poll state), which is a NEW data stream, i.e. a behaviour
+change the "visual + layout only" constraint rules out. The only dashboard VISUAL
+mock is the single-log version, which the current build matches. Revisit if a real
+console stream is wanted.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

@@ -18,7 +18,7 @@ from data.profile import StageProfile, Step, MAX_STEPS
 # Same theme as the dashboard - the editor is a second window of one tool, so
 # it must not look like a different application.
 from ui.panels import (
-    DASHBOARD_QSS, BAD, DIM, FAINT, OK, hsep, install_no_wheel_filter,
+    DASHBOARD_QSS, ACCENT_SOFT, BAD, DIM, FAINT, OK, hsep, install_no_wheel_filter,
 )
 
 try:
@@ -39,17 +39,18 @@ MARKER_R = 13
 # existing marker - use "+ Add step" and drag if you really need them that
 # close together.
 MARKER_GRAB_R = MARKER_R + 12
-# Markers sit on top of a game screenshot, so they are picked bright enough to
-# survive a busy, mid-tone background rather than matching the UI chrome.
-COLOR_PLACE = QColor("#6C63FF")
-COLOR_OTHER = QColor("#E08A1E")
-COLOR_SEL = QColor("#3FCF8E")
-CANVAS_BG = QColor("#08080B")
+# Markers sit on top of a game screenshot, so they stay bright enough to survive
+# a busy background. Colours are the Nocturne set from the Stage Editor mock:
+# blurple placement, warm upgrade, cyan calibrated.
+COLOR_PLACE = QColor("#9184D9")   # accent
+COLOR_OTHER = QColor("#D9A45C")   # upgrade step
+COLOR_SEL = QColor("#D2CEFD")     # accent-300 ring on the selected marker
+CANVAS_BG = QColor("#050507")
 
-# Calibration overlay (distinct teal so anchors never look like step markers).
-COLOR_ANCHOR = QColor("#22C3E6")
-COLOR_ANCHOR_EDGE = QColor("#062730")
-COLOR_BOX_FILL = QColor(34, 195, 230, 55)
+# Calibration overlay (distinct cyan so anchors never look like step markers).
+COLOR_ANCHOR = QColor("#5CC2D9")
+COLOR_ANCHOR_EDGE = QColor("#0E3540")
+COLOR_BOX_FILL = QColor(92, 194, 217, 55)
 
 # Anchor sets the Calibrate tab drives. Point anchors are single [x, y]
 # positions; box anchors are [x1, y1, x2, y2] HUD regions. "scope" says where
@@ -570,7 +571,7 @@ class StageEditor(QWidget):
         top = QHBoxLayout()
         top.setSpacing(6)
         lbl_stage = QLabel("Stage")
-        lbl_stage.setObjectName("sectionHead")
+        lbl_stage.setObjectName("muted")
         top.addWidget(lbl_stage)
         self.stage_name = QLineEdit(self.profile.stage)
         self.stage_name.setPlaceholderText("Stage name (used for profile + capture filenames)")
@@ -642,7 +643,7 @@ class StageEditor(QWidget):
         tv.addWidget(cap_all)
 
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["#", "X", "Y", "Unit", "What to do"])
+        self.table.setHorizontalHeaderLabels(["#", "X", "Y", "UNIT", "WHAT TO DO"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -668,7 +669,7 @@ class StageEditor(QWidget):
 
         head = QHBoxLayout()
         head.setSpacing(6)
-        lbl_steps = QLabel("This run")
+        lbl_steps = QLabel("THIS RUN")
         lbl_steps.setObjectName("sectionHead")
         head.addWidget(lbl_steps)
         self.lbl_step_count = QLabel("nothing added yet")
@@ -749,10 +750,11 @@ class StageEditor(QWidget):
             card.setVisible(not (self.profile.reference_image and self.profile.steps))
 
     def _status(self, msg: str, level: str = "info"):
-        """Single status line at the bottom of the editor. Level colours it so
-        a refusal ('capture a reference first') isn't mistaken for progress."""
-        color = {"bad": BAD, "ok": OK}.get(level, DIM)
-        self.status.setStyleSheet(f"color: {color}; padding: 3px 2px; font-size: 11px;")
+        """Single status line at the bottom of the editor. The default is the
+        accent-300 status colour from the mock; level still overrides it so a
+        refusal ('capture a reference first') isn't mistaken for progress."""
+        color = {"bad": BAD, "ok": OK}.get(level, ACCENT_SOFT)
+        self.status.setStyleSheet(f"color: {color}; padding: 3px 2px; font-size: 12px;")
         self.status.setText(msg)
 
     # ---------------- calibrate tab ----------------

@@ -179,10 +179,12 @@ QTableWidget {{
     font-size: 13px;
     selection-background-color: {ACCENT_DEEP};
 }}
+/* Steps table header (editor): transparent with just a bottom divider, per the
+   mock - the uppercase label text is set in code (Qt QSS has no text-transform). */
 QHeaderView::section {{
-    background: {RAISED}; color: {DIM}; border: none;
-    border-right: 1px solid {DIVIDER}; border-bottom: 1px solid {DIVIDER};
-    padding: 5px 7px; font-size: 11px; font-weight: 500;
+    background: transparent; color: {FAINT}; border: none;
+    border-bottom: 1px solid {DIVIDER};
+    padding: 6px 8px; font-size: 11px; font-weight: 500;
 }}
 
 QScrollArea {{ border: none; }}
