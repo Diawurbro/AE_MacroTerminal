@@ -112,6 +112,11 @@ execution:
   # would be inside the region being checked. Normalized [x, y], well clear
   # of the HUD and of any placement spot.
   cursor_park: [0.02, 0.5]
+  # Where the "click bare ground to close the unit panel" fallback clicks. Must
+  # be OUTSIDE the unit panel (bottom-left, ~x 0.01-0.33 / y 0.30-0.71) AND not
+  # on one of your placed units - clicking away from a unit deselects it. Tune
+  # per stage if a unit sits here; calibrating deselect_btn is the better fix.
+  deselect_point: [0.62, 0.25]
   # An upgrade row keeps clicking Upgrade until the unit panel's "Upgrade
   # N/M" readout actually changes - "nothing happened" is nearly always
   # "can't afford the next level YET", which is a wait, not a failure

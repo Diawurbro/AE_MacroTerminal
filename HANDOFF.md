@@ -1448,6 +1448,32 @@ change the "visual + layout only" constraint rules out. The only dashboard VISUA
 mock is the single-log version, which the current build matches. Revisit if a real
 console stream is wanted.
 
+### 2.36 Two live-run bugs: upgrade-to-max stopping early, and round-2 select failing
+
+Both reported with screenshots from a real farming run.
+
+- **Upgrade-to-max stopped at 5 on a unit that goes to 8.** The panel read
+  "Upgrade 5/8" but the log said "maxed at 5/5" - OCR misread the max (8 -> 5),
+  and `upgrade_max`/`upgrade_times` had a top-of-loop `if N>=M: break` that took
+  the misread at face value. Fixed by making the level-CHANGE the primary "a
+  level was bought" signal (the pixel-diff already in `upgrade_once`) and reading
+  N/M ONLY on a no-change, inside `upgrade_once`, to tell maxed from can't-afford.
+  A buyable level changes the readout and is counted before OCR is ever consulted,
+  so a misread max can no longer stop early. The fast-stop at true max (2.31) is
+  kept: on no-change, N>=M returns immediately instead of waiting the timeout.
+  Verified with a sim: real-max 8 with OCR stuck reading max=5 now reaches 8;
+  a genuine 3/3 still stops at 3.
+- **Second loop couldn't find a unit the first loop placed fine** ("#6: no unit
+  at 0.471, 0.592"). Root cause chain: `deselect()`'s bare-ground fallback clicked
+  `cursor_park` `[0.02, 0.5]`, which is INSIDE the bottom-left unit panel
+  (~x 0.01-0.33, y 0.30-0.71), so it hit the open panel instead of the map and
+  never closed it ("the unit panel won't close" in the log). The stale panel then
+  poisoned the next step's selection on loop 2. Fixed with a separate
+  `execution.deselect_point` (default `[0.62, 0.25]`, clear of that panel) for the
+  fallback click. The user's `deselect_btn` is also mis-calibrated in that profile
+  - recalibrating it (Calibrate tab > "Unit panel close (X)") is the more reliable
+  fix and makes the fallback moot.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

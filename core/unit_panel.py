@@ -87,8 +87,16 @@ class UnitPanel:
         # doesn't depend on an anchor being calibrated right. Safe because no
         # hotbar card is ever armed here: arming is immediately followed by
         # its placement click.
+        #
+        # Its own point, NOT cursor_park: the unit panel is bottom-LEFT (roughly
+        # x 0.01-0.33, y 0.30-0.71), and cursor_park's [0.02, 0.5] lands INSIDE
+        # it - so the "bare ground" click hit the open panel and never closed it,
+        # which left a stale panel that poisoned the next step's selection on the
+        # second loop (the reported "round 2 can't find the unit" bug).
+        # deselect_point defaults clear of that panel; tune it if a stage puts a
+        # unit under it (calibrating deselect_btn is the more reliable fix).
         self.ctx.drv.click(*rect.to_screen(
-            *self.ctx.execution("cursor_park", [0.02, 0.5])))
+            *self.ctx.execution("deselect_point", [0.62, 0.25])))
         self.ctx.drv.wait(120)
         if self.ctx.panel_shows_unit(rect) and not self._warned_deselect:
             self._warned_deselect = True
@@ -205,14 +213,18 @@ class UnitPanel:
         return n, m
 
     def upgrade_once(self, rect, step) -> bool:
-        """Buy exactly ONE level: click Upgrade until the panel's level
-        readout actually changes.
+        """Buy exactly ONE level: click Upgrade until the panel's level readout
+        CHANGES - that change is the only reliable "a level was bought" signal.
 
-        "Nothing happened" almost always means "can't afford the next level
-        yet", which is a wait, not a failure - so it keeps clicking on a slow
-        interval instead of moving on (the user's ask: click until it
-        upgrades). execution.upgrade_timeout_s is only the give-up guard, and
-        reaching it is the signal for "maxed out, or never affordable".
+        A readout that doesn't change is either maxed or not-yet-affordable, and
+        those need opposite handling, so ONLY on a no-change is the N/M caption
+        read (OCR): N>=M means maxed - stop now; N<M means "can't afford yet" -
+        keep clicking on a slow interval until income arrives (the user's ask).
+
+        Reading OCR only here, never to pre-empt a click, is what keeps a MISREAD
+        max from stopping an upgrade early: a level that can actually buy changes
+        the readout and is counted before OCR is ever looked at - so "5/8"
+        misread as "5/5" no longer maxes a unit at level 5 (the reported bug).
 
         Falls back to a single unverified click when upgrade_level_roi isn't
         calibrated - there is nothing to watch, and one click is what the old
@@ -232,7 +244,11 @@ class UnitPanel:
             self.action(rect, "upgrade")
             self.ctx.drv.wait(confirm)
             if vcap.region_changed(before, self.level_shot(rect)):
-                return True
+                return True   # a level was bought
+            # No change: maxed, or can't afford the next level yet?
+            lvl = self._read_level(rect)
+            if lvl and lvl[0] >= lvl[1]:
+                return False   # maxed - stop now instead of waiting out the timeout
             if time.monotonic() >= deadline:
                 return False
             self.ctx.drv.wait(interval)
@@ -249,19 +265,14 @@ class UnitPanel:
         return True
 
     def upgrade_times(self, rect, sx, sy, step, times: int):
-        """Buy N levels, each one verified before counting it. Stops early if
-        the unit maxes out before N (read from the N/M caption when OCR is
-        available)."""
+        """Buy N levels, each one verified by the readout changing. Stops early
+        if the unit maxes out before N - upgrade_once returns False once a level
+        can't be bought (maxed, per the N/M read on no-change)."""
         if not self._open_panel(rect, sx, sy, step):
             return
         n = max(1, times)
         for i in range(n):
             self.ctx.check_stop()
-            lvl = self._read_level(rect)
-            if lvl and lvl[0] >= lvl[1]:
-                self.ctx.log(f"#{step.id} upgrade: unit maxed at {lvl[0]}/{lvl[1]} "
-                             f"after {i} level(s) - wanted {n}.")
-                return
             if not self.upgrade_once(rect, step):
                 self.ctx.log(f"#{step.id} upgrade: got {i} of {n} level(s) - "
                              "the next one never applied (maxed out, or not "
@@ -272,33 +283,24 @@ class UnitPanel:
     def upgrade_max(self, rect, sx, sy, step):
         """Buy levels until the unit is maxed.
 
-        The definitive stop is the panel's "Upgrade N/M" caption: quit the
-        moment N>=M (read via OCR), so a maxed unit is left alone immediately
-        instead of getting its dead Upgrade button clicked for the full
-        upgrade_timeout_s first (the "doesn't stop after upgrade to max"
-        report). When the caption can't be read (no Tesseract / uncalibrated
-        ROI) it falls back to the pixel-diff give-up in upgrade_once - the same
-        behaviour as before, just slower to notice max (HANDOFF 2.19/2.27)."""
+        Each iteration buys one level (upgrade_once), which returns False the
+        moment a level can't be bought - a readout that won't change AND an N/M
+        read of N>=M (see upgrade_once). The max check lives THERE, not as a
+        top-of-loop pre-check, so a misread max ("5/8" -> "5/5") can't stop the
+        loop early: a buyable level changes the readout and is counted first."""
         if not self._open_panel(rect, sx, sy, step):
             return
         cap = self.ctx.execution("max_upgrade_clicks", 30)
         got = 0
-        maxed_at = None
         for _ in range(cap):
             self.ctx.check_stop()
-            lvl = self._read_level(rect)
-            if lvl and lvl[0] >= lvl[1]:
-                maxed_at = lvl
-                break
             if not self.upgrade_once(rect, step):
                 break
             got += 1
-        if maxed_at:
-            self.ctx.log(f"#{step.id} upgrade-to-max: maxed at "
-                         f"{maxed_at[0]}/{maxed_at[1]} ({got} level(s) this run).")
-        else:
-            tail = " (hit execution.max_upgrade_clicks)" if got >= cap else ""
-            self.ctx.log(f"#{step.id} upgrade-to-max: bought {got} level(s){tail}.")
+        lvl = self._read_level(rect)
+        where = f" - now {lvl[0]}/{lvl[1]}" if lvl else ""
+        tail = " (hit execution.max_upgrade_clicks)" if got >= cap else ""
+        self.ctx.log(f"#{step.id} upgrade-to-max: bought {got} level(s){where}{tail}.")
 
     # ---------------- selling ----------------
 
