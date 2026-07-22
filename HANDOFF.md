@@ -1389,6 +1389,38 @@ Two user reports.
   `App._shared_cap()` (the executor keeps its own on the worker thread - mss
   handles are per-thread).
 
+### 2.34 L-shaped side-dock dashboard + Nocturne theme (branch: dashboard-side-dock)
+
+Implemented from `design_handoff_dashboard_side_dock` (README + a 1920x1080 HTML
+mock). Layout + visual redesign only - every panel class keeps its public methods
+and signals, so no run logic changed.
+
+- **Layout**: the bottom bar is replaced by an L-dock around the game. The game
+  is pinned TOP-LEFT (new `RobloxWindow.layout(pin=(x,y))`) instead of centered,
+  which frees the column to its right and the strip beneath it. `MainWindow` is
+  now the right control column (`COL_W=576`): Setup & Run on top, then a row of
+  [Readiness | Statistics+Webhooks]. The log moved to its own `LogWindow` (a
+  separate top-level, since an L-shape isn't a rectangle) that `MainWindow` owns
+  and closes with itself. `main.py:_layout_docks(rect)` positions both off the
+  game's client rect (called at startup with the expected placement, on attach,
+  and from the watchdog when the game is dragged). `BAR_H` is retired (kept = 0
+  for import compatibility); `MARGIN/GAP/COL_W/GAME_W/GAME_H` drive geometry.
+- **Theme**: `DASHBOARD_QSS` retuned to the Nocturne tokens (ground #10111C,
+  surface #232532, blurple accent #9184D9 / accent-300 #D2CEFD, low-chroma OK/
+  WARN/BAD, 8px card/input radius, 4px log well). Buttons are OUTLINED (transparent
+  ground, 1px border; primary=accent, danger=muted red, ghost=none). Section
+  labels are the QGroupBox titles, upper-cased in code (Qt QSS has no
+  text-transform). App font is Inter with a Segoe UI fallback (`setFamilies`).
+- **Known deviations from the mock** (Qt QSS limits / judgement calls): the two
+  dock windows keep their OS title bars (movable/closable - safer than frameless
+  for a live tool; flip to `Qt.FramelessWindowHint` for the exact look); no
+  Phosphor icon glyphs (icon font not bundled - status dots use the existing
+  HTML-entity bullets); no letter-spacing or box-shadow (unsupported in Qt QSS).
+  Inter falls back to Segoe UI unless Inter is installed.
+
+Kept on a branch so the working bottom-bar build stays on `main` until this is
+verified live (attach, confirm the docks frame the game with no overlap).
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

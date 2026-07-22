@@ -1,61 +1,90 @@
-"""Dashboard window: a short, full-width bar docked to the BOTTOM edge of the
-screen (Setup & Run, Readiness, Statistics, Webhooks, Current Process laid out
-side by side). main.py sizes it to the screen width and positions the Roblox
-window in the space ABOVE it, so the two never overlap. This replaces the old
-tall left-docked column, which ran off the bottom of the screen. The stage
-editor (canvas + Index grid) is its own separate window, opened on demand from
-the 'Stage editor' button.
+"""Dashboard: an L-shaped dock around the 1280x720 Roblox window (the game is
+pinned top-left, freeing the column to its right and the strip beneath it).
+
+- Right control column (COL_W wide): Setup & Run on top, then a row of
+  [Readiness | Statistics + Webhooks].
+- Bottom log strip (game width): the run log, in its own window under the game.
+
+main.py positions all three (game top-left, column right, log bottom). The log
+is a separate top-level window because an L-shape isn't a rectangle - one window
+can't cover both docks without also covering the game. MainWindow owns it so
+main.py still reaches everything through `self.window` (`.log`, `.log_window`).
 """
 
-from PySide6.QtWidgets import QWidget, QHBoxLayout
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 
 from ui.panels import (
     DASHBOARD_QSS, LogPanel, ReadinessPanel, SetupRunPanel, StatsPanel,
     WebhookPanel, install_no_wheel_filter,
 )
 
-# Height of the bottom bar (px). The Roblox window is centered in the screen
-# area above this, so keep it small enough to leave room for a 720px client.
-BAR_H = 250
+# Layout geometry (px), matching the design mock on a 1920x1080 screen.
+MARGIN = 24        # gap from the screen edges
+GAP = 16           # gap between the game window and the docks, and between cards
+COL_W = 576        # right control-column width
+GAME_W = 1280      # forced Roblox client width (see core/window.py)
+GAME_H = 720
+
+# Kept for import compatibility; the bottom-bar height is no longer used to
+# reserve screen space (the game is pinned top-left now, not centered above a
+# bar). main.py positions everything from the constants above.
+BAR_H = 0
+
+
+class LogWindow(QWidget):
+    """The bottom log strip - its own frameless-feeling top-level window so it
+    can sit directly under the game window, in the space the L-dock leaves."""
+
+    def __init__(self, log: LogPanel):
+        super().__init__()
+        self.setWindowTitle("TD Macro - Log")
+        self.setObjectName("logRoot")
+        self.setStyleSheet(DASHBOARD_QSS)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(log)
 
 
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TD Macro")
-        self.setFixedHeight(BAR_H)
-        # dashRoot draws the accent hairline along the top edge (see the QSS);
-        # the 6px top margin keeps the panels off it.
         self.setObjectName("dashRoot")
         self.setStyleSheet(DASHBOARD_QSS)
         # App-wide: the mouse wheel must never change a spin box / combo value.
         install_no_wheel_filter()
 
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 6, 8, 6)
-        root.setSpacing(7)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(GAP)
 
-        # Left to right across the bar, in the order the workflow uses them.
-        # Everything is width-capped to its content except the log, which
-        # stretches to fill whatever is left - on a 1920px screen that is most
-        # of the bar, which is what makes long log lines readable.
+        # Setup & Run spans the top of the column.
         self.setup_run = SetupRunPanel()
-        self.setup_run.setMinimumWidth(340)
-        self.setup_run.setMaximumWidth(420)
         root.addWidget(self.setup_run)
 
+        # Below it: Readiness on the left, Statistics + Webhooks stacked right.
+        row = QHBoxLayout()
+        row.setSpacing(GAP)
         self.readiness = ReadinessPanel()
-        self.readiness.setFixedWidth(248)
-        root.addWidget(self.readiness)
+        row.addWidget(self.readiness, 1)
 
+        right = QVBoxLayout()
+        right.setSpacing(GAP)
         self.stats = StatsPanel()
-        self.stats.setFixedWidth(196)
-        root.addWidget(self.stats)
-
+        right.addWidget(self.stats)
         self.webhook = WebhookPanel()
-        self.webhook.setFixedWidth(210)
-        root.addWidget(self.webhook)
+        right.addWidget(self.webhook)
+        right.addStretch(1)
+        row.addLayout(right, 1)
+        root.addLayout(row, 1)
 
+        # The log strip is a separate window; MainWindow builds and owns it so
+        # positioning/show/close stay centralized (main.py uses both).
         self.log = LogPanel()
-        self.log.setMinimumWidth(260)
-        root.addWidget(self.log, 1)
+        self.log_window = LogWindow(self.log)
+
+    def closeEvent(self, ev):
+        # Closing the control column closes the whole dashboard - take the log
+        # strip with it, or it lingers as an orphan window keeping the app alive.
+        self.log_window.close()
+        super().closeEvent(ev)

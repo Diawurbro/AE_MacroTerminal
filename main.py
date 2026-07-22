@@ -18,7 +18,7 @@ from PySide6.QtCore import QObject, QTimer, QLocale, Signal  # noqa: E402
 from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
-from ui.main_window import MainWindow, BAR_H  # noqa: E402
+from ui.main_window import MainWindow, MARGIN, GAP, COL_W, GAME_W, GAME_H  # noqa: E402
 from ui.panels import DASHBOARD_QSS  # noqa: E402
 from ui.stage_editor import StageEditor, CameraTestThread, HAS_CAMERA  # noqa: E402
 from data.stats import StatsDB  # noqa: E402
@@ -189,13 +189,14 @@ class App:
         self.window.readiness.recheck_requested.connect(self.refresh_readiness)
         self.window.readiness.guide_requested.connect(self.show_guide)
 
-        # Dashboard: a short full-width bar docked to the bottom edge. The
+        # Dashboard: an L-shaped dock around the game. The control column sits
+        # to the right, the log strip beneath - positioned off the game's client
+        # rect once attached, or an expected top-left placement until then. The
         # editor is NOT shown at startup - it opens from the "Stage editor"
-        # button. Roblox is positioned in the space above this bar on attach.
-        screen = QApplication.primaryScreen().availableGeometry()
-        self.window.setGeometry(screen.x(), screen.y() + screen.height() - BAR_H,
-                                screen.width(), BAR_H)
+        # button.
+        self._layout_docks(None)
         self.window.show()
+        self.window.log_window.show()
         self._editor_positioned = False
 
         self.watchdog = QTimer()
@@ -238,6 +239,29 @@ class App:
 
     # ---------------- window ----------------
 
+    def _layout_docks(self, rect):
+        """Position the control column (right of the game) and the log strip
+        (below it). `rect` is the game's client rect once attached, or None to
+        use the expected top-left placement before the first attach so the
+        dashboard shows somewhere sensible at startup."""
+        screen = QApplication.primaryScreen().availableGeometry()
+        sx, sy, sw, sh = screen.x(), screen.y(), screen.width(), screen.height()
+        if rect is None:
+            gx, gy, gw, gh = sx + MARGIN, sy + MARGIN, GAME_W, GAME_H
+        else:
+            gx, gy, gw, gh = rect.x, rect.y, rect.w, rect.h
+
+        # Control column: to the right of the game, full usable height. Clamp
+        # its width if the screen is narrower than the mock's 1920.
+        col_x = gx + gw + GAP
+        col_w = min(COL_W, max(320, sx + sw - MARGIN - col_x))
+        self.window.setGeometry(col_x, sy + MARGIN, col_w, sh - 2 * MARGIN)
+
+        # Log strip: directly under the game, matching its width.
+        log_y = gy + gh + GAP
+        log_h = max(120, sy + sh - MARGIN - log_y)
+        self.window.log_window.setGeometry(gx, log_y, gw, log_h)
+
     def attach(self):
         hwnd = self.win.find()
         if not hwnd:
@@ -246,9 +270,10 @@ class App:
             QMessageBox.warning(None, "Attach",
                                 "Roblox window not found.\nLaunch the game first.")
             return
-        # Position Roblox in the space above the bottom-docked dashboard bar.
-        self.rect = self.win.layout(bottom_bound=BAR_H + 10)
+        # Pin Roblox top-left; the dashboard docks around it (L-shape).
+        self.rect = self.win.layout(pin=(MARGIN, MARGIN))
         if self.rect:
+            self._layout_docks(self.rect)
             self.window.setup_run.set_attached(True, f"{self.rect.w}x{self.rect.h}")
             want_w = self.cfg["window"]["client_width"]
             want_h = self.cfg["window"]["client_height"]
@@ -286,6 +311,8 @@ class App:
                    abs(cur.w - self.rect.w), abs(cur.h - self.rect.h))
         if delta > 3:
             self.rect = cur
+            # Keep the docks glued to the game if it gets dragged/resized.
+            self._layout_docks(cur)
             self.window.log.write("Roblox window moved.")
         elif (cur.x, cur.y, cur.w, cur.h) != self.rect.as_tuple():
             self.rect = cur
@@ -696,7 +723,13 @@ def main():
     # Force English/US so QSpinBox etc. render Arabic numerals (0-9), not the
     # system-locale digits (e.g. Thai ๐-๙), and pin a clean Latin UI font.
     QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
-    app.setFont(QFont("Segoe UI", 9))
+    # Nocturne specifies Inter; fall back to Segoe UI when it isn't installed
+    # (Qt uses the first family that resolves). setFamilies gives a real
+    # fallback chain rather than Qt's generic substitution.
+    ui_font = QFont()
+    ui_font.setFamilies(["Inter", "Segoe UI"])
+    ui_font.setPointSize(9)
+    app.setFont(ui_font)
     # App-wide so the QMessageBox dialogs below (attach warnings, the Guide,
     # the startup error) and Qt's own file dialogs inherit the dark theme -
     # parented to None they'd otherwise pop as bright white boxes. Widget-level

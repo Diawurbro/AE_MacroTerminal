@@ -81,14 +81,22 @@ class RobloxWindow:
         cl, ct, cr, cb = win32gui.GetClientRect(self.hwnd)
         return (wr - wl) - (cr - cl), (wb - wt) - (cb - ct)
 
-    def layout(self, left_bound: int = 0, bottom_bound: int = 0) -> ClientRect | None:
-        """Restore, resize so the CLIENT area is exactly cw x ch, then center
-        it within the free screen area: horizontally to the RIGHT of left_bound
-        and vertically ABOVE bottom_bound (the height reserved for the dashboard
-        - a left column uses left_bound, a bottom bar uses bottom_bound).
-        Retries once with freshly-measured padding - right after SW_RESTORE
-        the window rect can still be settling, so the first padding read can
-        be stale and the resulting SetWindowPos undershoots."""
+    def layout(self, left_bound: int = 0, bottom_bound: int = 0,
+               pin: tuple[int, int] | None = None) -> ClientRect | None:
+        """Restore and resize so the CLIENT area is exactly cw x ch, then place
+        the window.
+
+        pin=(x, y) puts the OUTER window's top-left at those screen coords -
+        used by the L-dock, which pins the game top-left so the column to its
+        right and the strip beneath it are free (the client then lands a few px
+        inset by the frame, and the caller positions the docks off the returned
+        client rect, so the exact inset doesn't matter). With pin=None it
+        centers in the free area instead: right of left_bound, above
+        bottom_bound.
+
+        Retries once with freshly-measured padding - right after SW_RESTORE the
+        window rect can still be settling, so the first padding read can be
+        stale and the resulting SetWindowPos undershoots."""
         if not self.is_alive():
             return None
 
@@ -103,11 +111,14 @@ class RobloxWindow:
             total_w = self.cw + pad_w
             total_h = self.ch + pad_h
 
-            sw = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
-            sh = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
-            avail_h = max(total_h, sh - bottom_bound)
-            x = max(left_bound, left_bound + (sw - left_bound - total_w) // 2)
-            y = max(0, (avail_h - total_h) // 2)
+            if pin is not None:
+                x, y = pin
+            else:
+                sw = win32api.GetSystemMetrics(win32con.SM_CXSCREEN)
+                sh = win32api.GetSystemMetrics(win32con.SM_CYSCREEN)
+                avail_h = max(total_h, sh - bottom_bound)
+                x = max(left_bound, left_bound + (sw - left_bound - total_w) // 2)
+                y = max(0, (avail_h - total_h) // 2)
 
             ok = win32gui.SetWindowPos(
                 self.hwnd, win32con.HWND_TOP, x, y, total_w, total_h,
