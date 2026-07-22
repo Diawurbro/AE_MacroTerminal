@@ -1493,14 +1493,17 @@ after N" line, right after a "unit panel won't close" warning.
   fix (calibrate `deselect_btn`, or move `deselect_point` onto empty ground).
   The two reliable fixes are still user-side: `deselect_btn` is mis-calibrated in
   the reporting profile, and `deselect_point` must be over empty map.
-- **Camera-on-entry is now the default** (`normalize_camera_once: false`),
-  reversing 2.33's default per a direct request ("auto change camera view on
-  enter the stage, without pressing Test camera view"). The camera is
-  normalized+verified on EVERY stage entry now, so a camera that drifts between
-  rounds is corrected automatically; `abort_on_ref_mismatch` still skips a round
-  rather than placing at the map edge if a re-normalize goes bad, which removes
-  2.33's original reason for defaulting to once. Still only touched on entry,
-  before Start Game - never during a match.
+- **Camera-on-entry** was briefly defaulted to `normalize_camera_once: false`
+  (re-normalize every round) in response to "auto change camera view on enter the
+  stage" - but that **regressed Start Game**: with re-verify every round, a round
+  whose camera scored under `ref_match_threshold` hit the `abort_on_ref_mismatch`
+  path in `_run_once` and `record("abort"); return False` BEFORE
+  `press_start_game`, so Start stopped firing. **Reverted to the 2.33 default
+  `true`** (normalize + verify once on the first entry, reuse on repeats): the
+  camera still auto-normalizes on entry - "Test camera view" was never required -
+  and Start fires every round. `false` remains available for anyone who wants
+  per-round re-normalize and accepts that a mismatched round is skipped. The
+  camera is only ever touched on entry, before Start Game - never during a match.
 
 ## 3. Current state of the code
 
