@@ -151,6 +151,7 @@ class App:
         self.win = RobloxWindow(self.cfg)
         self.rect = None
         self.executor = None
+        self._capture_obj = None   # lazily created shared Capture, see _shared_cap
         self.stats_db = StatsDB(os.path.join(BASE, self.cfg["paths"]["database"]))
 
         # Two separate windows: a narrow full-height dashboard docked to the
@@ -323,7 +324,7 @@ class App:
             self.window.log.write("Open the stage editor and Capture ref now.")
             return
         try:
-            score = vcap.similarity(vcap.Capture().grab(self.rect), vcap.load(ref))
+            score = vcap.similarity(self._shared_cap().grab(self.rect), vcap.load(ref))
         except Exception as e:
             self.window.log.write(f"Couldn't score the reference match: {e}")
             return
@@ -345,10 +346,21 @@ class App:
 
     # ---------------- capture ----------------
 
+    def _shared_cap(self):
+        """One reused Capture for all GUI-thread grabs (Test camera view /
+        Screenshot / Test read). Each vcap.Capture() opens an mss handle, so
+        making a fresh one per button click leaked a handle every time and
+        slowed the app over a calibration session (RELEASE_REVIEW 1.4). The
+        executor keeps its OWN Capture on the worker thread - mss handles are
+        per-thread - so this shared one is for the GUI thread only."""
+        if self._capture_obj is None:
+            self._capture_obj = vcap.Capture()
+        return self._capture_obj
+
     def _capture(self, rect, path):
         if not HAS_VISION:
             raise RuntimeError("opencv/mss not installed")
-        img = vcap.Capture().grab(rect)
+        img = self._shared_cap().grab(rect)
         vcap.save(img, path)
 
     def take_screenshot(self):
@@ -446,7 +458,7 @@ class App:
         self.win.focus()  # the ROI is captured from screen coords behind us
         reader = getattr(ocr, self._OCR_TEST_READERS.get(name, "read_int"))
         try:
-            img = vcap.Capture().grab_roi(self.rect, roi)
+            img = self._shared_cap().grab_roi(self.rect, roi)
             val = reader(img)
             if val == (None, None):
                 val = None

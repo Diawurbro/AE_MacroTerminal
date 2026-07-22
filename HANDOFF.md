@@ -1362,6 +1362,33 @@ group GAP in the 2.12 captures (-> rejoins to 2003), but confirm with the
 Calibrate tab's "Test read cash" on the live HUD - an over-read cash would let
 an underfunded placement through.
 
+### 2.33 Camera set once per run, and the log no longer slows the app down
+
+Two user reports.
+
+- *"set view 1 time per stage join and not change after pressing start"* - the
+  camera was normalized+verified on EVERY loop, and re-running that flaky
+  sequence each round is what corrupted a good camera and then failed the
+  reference check ("mismatch screenshot"). Repeat Stage restarts the same stage
+  without moving the camera and nothing here moves the character, so the
+  top-down view set on entry holds. `Executor` now normalizes+verifies ONCE per
+  run and reuses it for every repeat, gated by `execution.normalize_camera_once`
+  (default true; false restores per-round normalize+verify). Gated on a
+  `_camera_set` flag rather than `loop_no == 1`, so a first attempt that aborts
+  on mismatch still retries next loop instead of skipping the camera forever.
+  Risk it trades for: if the camera ever drifts mid-session, nothing re-checks
+  it - units land at the map edge and the fix is to stop and Start again.
+- *"app runs slow after each click"* - `LogPanel` was a `QTextEdit` that grew
+  without bound. A farming run emits many lines per loop, and QTextEdit
+  re-lays-out its whole document on every insert, so each logged action got
+  slower than the last. Switched to `QPlainTextEdit` with
+  `setMaximumBlockCount(600)` (a ring buffer - O(1) append, oldest lines drop)
+  via `appendHtml`, keeping the per-line colour. Also fixed RELEASE_REVIEW 1.4
+  in passing: the GUI-thread Test camera / Screenshot / Test read handlers each
+  did `vcap.Capture()`, leaking an mss handle per click; they now share one
+  `App._shared_cap()` (the executor keeps its own on the worker thread - mss
+  handles are per-thread).
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

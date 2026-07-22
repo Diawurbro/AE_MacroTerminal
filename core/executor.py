@@ -51,6 +51,12 @@ class Executor(QThread):
         self.stats_path = stats_path
         self.templates_dir = templates_dir
         self._stop = False
+        # Set True once the camera has been normalized+verified for this run.
+        # With execution.normalize_camera_once on, the camera is set a single
+        # time on stage entry and then trusted for every repeat - re-running
+        # the flaky normalize sequence each round is what was corrupting a
+        # good camera and tripping the reference-mismatch abort (see _run_once).
+        self._camera_set = False
 
     def request_stop(self):
         self._stop = True
@@ -160,8 +166,19 @@ class Executor(QThread):
         self.setup.teleport_to_spawn(rect)
         self._check_stop()
 
-        if not self.setup.normalize_and_verify(rect):
-            if self.ctx.execution("abort_on_ref_mismatch", True):
+        # Normalize the camera ONCE per run (on stage entry), then reuse it for
+        # every repeat. Repeat Stage restarts the same stage without moving the
+        # camera and nothing here moves the character, so the top-down view set
+        # on entry holds - and re-running the normalize each round only risks
+        # its known flakiness corrupting a good camera, then failing the verify
+        # and aborting the loop. Set execution.normalize_camera_once false to go
+        # back to per-round normalize+verify. `_camera_set` (not loop_no) gates
+        # it, so a first attempt that aborts still retries on the next loop.
+        normalize_once = self.ctx.execution("normalize_camera_once", True)
+        if not self._camera_set or not normalize_once:
+            if self.setup.normalize_and_verify(rect):
+                self._camera_set = True
+            elif self.ctx.execution("abort_on_ref_mismatch", True):
                 self.log.emit(
                     "Skipping this loop - running steps against a camera that "
                     "doesn't match the reference places units in the wrong "
@@ -171,9 +188,13 @@ class Executor(QThread):
                     "right for a correct camera.")
                 record("abort")
                 return False
-            self.log.emit("WARNING: camera/reference mismatch and "
-                          "execution.abort_on_ref_mismatch is off - continuing, "
-                          "but every step coordinate is suspect.")
+            else:
+                self.log.emit("WARNING: camera/reference mismatch and "
+                              "execution.abort_on_ref_mismatch is off - "
+                              "continuing, but every step coordinate is suspect.")
+        else:
+            self.log.emit("Reusing the camera set on stage entry - not "
+                          "re-normalizing (execution.normalize_camera_once).")
 
         self._check_stop()
         self.setup.press_start_game(rect)

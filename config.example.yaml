@@ -134,6 +134,14 @@ execution:
   # coordinates that no longer mean anything. Set false to warn and run
   # anyway, e.g. while calibrating.
   abort_on_ref_mismatch: true
+  # Normalize the camera ONCE per run, on stage entry, then reuse it for every
+  # repeat instead of re-running the sequence each round. Repeat Stage keeps the
+  # same camera and nothing here moves the character, so the view set on entry
+  # holds - and re-normalizing each round is flaky enough that it was corrupting
+  # a good camera and then failing the reference check. Set false to normalize +
+  # verify every round (the old behaviour). If units ever start landing at the
+  # map edge on a later round, the camera drifted: stop and Start again to reset.
+  normalize_camera_once: true
   # Stop the whole run after this many loops in a row that ended before a
   # single step ran. Without it, an infinite run with a broken camera retries
   # forever, doing nothing, all night.

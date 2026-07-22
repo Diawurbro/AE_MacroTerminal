@@ -13,10 +13,9 @@ import html
 import time
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QSpinBox, QLineEdit, QGroupBox, QGridLayout, QCheckBox,
+    QTextEdit, QPlainTextEdit, QSpinBox, QLineEdit, QGroupBox, QGridLayout, QCheckBox,
     QScrollArea, QFrame, QProgressBar, QSizePolicy, QComboBox,
     QAbstractSpinBox, QAbstractScrollArea, QApplication,
 )
@@ -134,7 +133,7 @@ QComboBox QAbstractItemView {{
     outline: none;
 }}
 
-QTextEdit {{
+QTextEdit, QPlainTextEdit {{
     background: {SUNKEN}; color: #C8C8D2; border: 1px solid {BORDER};
     border-radius: 5px; font-family: Consolas, "Cascadia Mono", monospace;
     font-size: 11px; selection-background-color: {ACCENT_DEEP};
@@ -267,7 +266,15 @@ def _dot(color: str) -> str:
 class LogPanel(QGroupBox):
     """Run log. The executor emits plain sentences with no severity prefix, so
     lines are classified by wording - colour is what makes a 200-line log
-    scannable at 11px in a 250px-tall bar."""
+    scannable at 11px in a 250px-tall bar.
+
+    Backed by QPlainTextEdit with a capped block count, not QTextEdit: a
+    farming run emits many lines per loop and the log used to grow without
+    bound, so QTextEdit re-laid-out an ever-larger document on every insert and
+    the whole app got slower with each logged action. The cap makes each append
+    O(1) - oldest lines are dropped once MAX_LINES is reached."""
+
+    MAX_LINES = 600
 
     # Four levels, same colour language as the readiness checklist: red is
     # "this run is broken", amber is "degraded but continuing".
@@ -299,9 +306,13 @@ class LogPanel(QGroupBox):
         head.addWidget(self.btn_clear)
         v.addLayout(head)
 
-        self.log = QTextEdit()
+        self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.log.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        # Ring-buffer the document so a long session can't grow it without
+        # bound - this is what keeps every append fast (see class docstring).
+        self.log.setMaximumBlockCount(self.MAX_LINES)
+        self.log.setUndoRedoEnabled(False)
         v.addWidget(self.log, 1)
 
     def _color_for(self, msg: str) -> str:
@@ -323,11 +334,9 @@ class LogPanel(QGroupBox):
         bar = self.log.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
 
-        cur = self.log.textCursor()
-        cur.movePosition(QTextCursor.End)
-        if not self.log.document().isEmpty():
-            cur.insertBlock()
-        cur.insertHtml(
+        # appendHtml adds one block and the maximumBlockCount cap drops the
+        # oldest as needed - no manual cursor/trim bookkeeping.
+        self.log.appendHtml(
             f"<span style='color:{FAINT}'>{time.strftime('%H:%M:%S')}</span>&nbsp;"
             f"<span style='color:{color}'>{html.escape(msg)}</span>")
 
