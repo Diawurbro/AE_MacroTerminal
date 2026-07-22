@@ -314,7 +314,7 @@ class App:
             self.window.log.write("Open the stage editor and Capture ref now.")
             return
         try:
-            score = vcap.similarity(self._capture(), vcap.load(ref))
+            score = vcap.similarity(vcap.Capture().grab(self.rect), vcap.load(ref))
         except Exception as e:
             self.window.log.write(f"Couldn't score the reference match: {e}")
             return

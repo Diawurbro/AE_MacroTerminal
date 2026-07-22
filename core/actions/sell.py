@@ -7,4 +7,4 @@ class SellAction(StepAction):
     name = "sell"
 
     def execute(self, step, rect, target: Target):
-        self.panel.sell(rect, target.sx, target.sy)
+        self.panel.sell(rect, target.sx, target.sy, step)

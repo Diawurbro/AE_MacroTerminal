@@ -1,14 +1,16 @@
 """The selected-unit panel: selecting a unit, and its Upgrade / Sell /
 Priority controls.
 
-Placing a unit does NOT open this panel - a SEPARATE click on the placed
-unit does (confirmed on a real run, HANDOFF 2.20). Every method here that
-acts on a unit therefore selects it first rather than trusting the caller to
-have done so. That's deliberate rather than "select once up front and share
-it": if one action leaves the panel in a state the next doesn't expect, the
-next one's own select click recovers it. A single shared select would not
-have that property, and the standalone 'upgrade'/'sell' step types need to
-select an arbitrary earlier unit anyway.
+The panel may already be open when a method here runs: placing a unit
+auto-selects it, so its info panel is up by the time the place step goes on
+to set priority / buy upgrades (Step.md / IMG_9374; place.py leans on the
+same behaviour to verify a placement). It may equally be closed - a
+standalone upgrade/sell step acts on some arbitrary earlier unit. So a method
+must OPEN the panel defensively rather than assume a state, and must never do
+so with a BARE click on an already-open panel: that click toggles the current
+selection back OFF. select_verified is the safe primitive - it deselects
+whatever is open first, then selects this spot - so one path is correct either
+way. Upgrade, priority and sell all go through it.
 """
 
 import time
@@ -125,7 +127,21 @@ class UnitPanel:
         is exactly what the bounded loop below is defending against."""
         from data.profile import PRIORITY_TYPES
 
-        self.select(sx, sy)
+        # Open THIS unit's panel without assuming it isn't already open. Placing
+        # a unit auto-selects it (Step.md / IMG_9374), so by the time
+        # _after_place gets here the panel is already up on this very unit - a
+        # bare select() would click the already-selected unit and TOGGLE THE
+        # PANEL CLOSED, and every priority read below would then run against a
+        # shut panel, so the priority silently never got set. select_verified
+        # deselects whatever is open first, then selects this spot (the same
+        # guard the upgrade path uses). It returns False only when the spot is
+        # genuinely empty (the placement here failed) and None when there's no
+        # baseline to judge, in which case we carry on exactly as before.
+        if self.select_verified(rect, sx, sy) is False:
+            self.ctx.log(f"#{step.id} priority '{step.priority}': no unit at "
+                         f"{step.x:.3f}, {step.y:.3f} - skipping (the placement "
+                         "for this spot probably failed).")
+            return
         label_roi = self.ctx.anchor("priority_label_roi")
         target = step.priority
 
@@ -196,12 +212,13 @@ class UnitPanel:
             self.ctx.drv.wait(interval)
 
     def _open_panel(self, rect, sx, sy, step) -> bool:
-        """Select the unit and refuse to work on empty ground."""
+        """Select the unit and refuse to work on empty ground. Shared by the
+        upgrade and sell paths, so the message stays action-neutral."""
         opened = self.select_verified(rect, sx, sy)
         if opened is False:
             self.ctx.log(f"#{step.id}: no unit at {step.x:.3f}, {step.y:.3f} - "
-                         "nothing to upgrade (the placement for this spot "
-                         "probably failed).")
+                         "skipping (the placement for this spot probably "
+                         "failed).")
             return False
         return True
 
@@ -241,11 +258,16 @@ class UnitPanel:
 
     # ---------------- selling ----------------
 
-    def sell(self, rect, sx, sy):
+    def sell(self, rect, sx, sy, step):
         """Select the unit, hit Sell, then confirm if a confirm dialog is
         calibrated. confirm_btn is still an unmeasured guess - no sell-confirm
-        dialog has ever been captured (HANDOFF 2.18)."""
-        self.select(sx, sy)
+        dialog has ever been captured (HANDOFF 2.18).
+
+        Goes through _open_panel (not a bare select) so a sell that lands with
+        a leftover panel open doesn't toggle THAT panel shut and sell nothing -
+        the same toggle trap the priority/upgrade paths guard against."""
+        if not self._open_panel(rect, sx, sy, step):
+            return
         self.action(rect, "sell")
         self.ctx.drv.wait(150)
         self.ctx.click_anchor(rect, "confirm_btn")

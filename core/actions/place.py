@@ -174,9 +174,17 @@ class PlaceAction(StepAction):
         return False
 
     def _after_place(self, step, rect, target: Target):
-        """Priority + auto-upgrade bundled onto a verified placement. Each
-        sub-action re-selects the unit itself (see UnitPanel) - placing does
-        not open the info panel, only clicking the unit does."""
+        """Priority + auto-upgrade bundled onto a verified placement.
+
+        The panel is ALREADY OPEN on this unit when we get here: placing a unit
+        auto-selects it (Step.md / IMG_9374), and panel-mode verification only
+        returns once that panel is up. So each sub-action must re-open it
+        through select_verified, NOT a bare select() - a bare click on the
+        already-open panel would toggle the selection back OFF and the action
+        would land on nothing (this is the exact trap HANDOFF 2.20's "placing
+        does not select" note pre-dated; that note is superseded). UnitPanel's
+        methods already route through select_verified, so this just calls
+        them."""
         if step.priority != "none":
             self.panel.set_priority(rect, target.sx, target.sy, step)
 
