@@ -1395,16 +1395,21 @@ Implemented from `design_handoff_dashboard_side_dock` (README + a 1920x1080 HTML
 mock). Layout + visual redesign only - every panel class keeps its public methods
 and signals, so no run logic changed.
 
-- **Layout**: the bottom bar is replaced by an L-dock around the game. The game
-  is pinned TOP-LEFT (new `RobloxWindow.layout(pin=(x,y))`) instead of centered,
-  which frees the column to its right and the strip beneath it. `MainWindow` is
-  now the right control column (`COL_W=576`): Setup & Run on top, then a row of
-  [Readiness | Statistics+Webhooks]. The log moved to its own `LogWindow` (a
-  separate top-level, since an L-shape isn't a rectangle) that `MainWindow` owns
-  and closes with itself. `main.py:_layout_docks(rect)` positions both off the
-  game's client rect (called at startup with the expected placement, on attach,
-  and from the watchdog when the game is dragged). `BAR_H` is retired (kept = 0
-  for import compatibility); `MARGIN/GAP/COL_W/GAME_W/GAME_H` drive geometry.
+- **Layout**: the bottom bar is replaced by a dock around the game. The game is
+  pinned TOP-LEFT (new `RobloxWindow.layout(pin=(x,y))`) instead of centered,
+  which frees the column to its right and the strip beneath it. It is ONE
+  full-screen frameless `MainWindow` with a **click-through mask** cutting a hole
+  where the game is (`setMask(screen − game rect)`), so the control column and
+  the log strip read as a single surface wrapping the game rather than two
+  separate windows. Two child hosts (`_column_host`, `_log_host`) hold the panels
+  (Setup & Run over [Readiness | Statistics+Webhooks]; log strip below). The hole
+  is unpainted + click-through, so Roblox shows through it, receives real and
+  synthetic clicks, and `mss` reads the true game pixels. `MainWindow.place(game,
+  screen)` positions the hosts and sets the mask; `main.py:_layout_docks` calls it
+  at startup (expected rect), on attach (game's OUTER window rect via new
+  `RobloxWindow.window_rect()`), and from the watchdog on move. `BAR_H` retired
+  (kept = 0 for import compatibility); `MARGIN/GAP/COL_W/GAME_W/GAME_H` drive
+  geometry.
 - **Theme**: `DASHBOARD_QSS` retuned to the Nocturne tokens (ground #10111C,
   surface #232532, blurple accent #9184D9 / accent-300 #D2CEFD, low-chroma OK/
   WARN/BAD, 8px card/input radius, 4px log well). Buttons are OUTLINED (transparent

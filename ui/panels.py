@@ -56,9 +56,12 @@ DIVIDER = "rgba(233,233,237,0.16)"
 DASHBOARD_QSS = f"""
 QWidget {{ background: {BG}; color: {TEXT}; font-size: 13px; }}
 
-/* The docked windows are frameless; a slightly darker ground than the cards is
-   what makes the {SURFACE} cards read as raised surfaces (Nocturne). */
+/* The frameless window ground; a touch darker than the cards so the {SURFACE}
+   cards read as raised surfaces (Nocturne). */
 QWidget#dashRoot, QWidget#logRoot {{ background: #10111C; }}
+/* The column / log hosts are transparent, so the ground above shows through the
+   gaps between cards (not the generic QWidget background). */
+QWidget#colHost, QWidget#logHost {{ background: transparent; }}
 
 QLabel {{ background: transparent; color: {TEXT}; font-size: 13px; }}
 QLabel#appTitle {{ color: {TEXT}; font-size: 15px; font-weight: 500; }}

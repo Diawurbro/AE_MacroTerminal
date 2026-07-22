@@ -18,7 +18,7 @@ from PySide6.QtCore import QObject, QTimer, QLocale, Signal  # noqa: E402
 from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
-from ui.main_window import MainWindow, MARGIN, GAP, COL_W, GAME_W, GAME_H  # noqa: E402
+from ui.main_window import MainWindow, MARGIN, GAME_W, GAME_H  # noqa: E402
 from ui.panels import DASHBOARD_QSS  # noqa: E402
 from ui.stage_editor import StageEditor, CameraTestThread, HAS_CAMERA  # noqa: E402
 from data.stats import StatsDB  # noqa: E402
@@ -194,9 +194,8 @@ class App:
         # rect once attached, or an expected top-left placement until then. The
         # editor is NOT shown at startup - it opens from the "Stage editor"
         # button.
-        self._layout_docks(None)
         self.window.show()
-        self.window.log_window.show()
+        self._layout_docks(None)
         self._editor_positioned = False
 
         self.watchdog = QTimer()
@@ -240,27 +239,20 @@ class App:
     # ---------------- window ----------------
 
     def _layout_docks(self, rect):
-        """Position the control column (right of the game) and the log strip
-        (below it). `rect` is the game's client rect once attached, or None to
-        use the expected top-left placement before the first attach so the
-        dashboard shows somewhere sensible at startup."""
+        """Shape the single dashboard window around the game: the control column
+        to its right, the log strip beneath, and a click-through hole where the
+        game is. `rect` is the game's client rect once attached, or None to use
+        the expected top-left placement before the first attach."""
         screen = QApplication.primaryScreen().availableGeometry()
-        sx, sy, sw, sh = screen.x(), screen.y(), screen.width(), screen.height()
         if rect is None:
-            gx, gy, gw, gh = sx + MARGIN, sy + MARGIN, GAME_W, GAME_H
+            game = (screen.x() + MARGIN, screen.y() + MARGIN, GAME_W, GAME_H)
         else:
-            gx, gy, gw, gh = rect.x, rect.y, rect.w, rect.h
-
-        # Control column: to the right of the game, full usable height. Clamp
-        # its width if the screen is narrower than the mock's 1920.
-        col_x = gx + gw + GAP
-        col_w = min(COL_W, max(320, sx + sw - MARGIN - col_x))
-        self.window.setGeometry(col_x, sy + MARGIN, col_w, sh - 2 * MARGIN)
-
-        # Log strip: directly under the game, matching its width.
-        log_y = gy + gh + GAP
-        log_h = max(120, sy + sh - MARGIN - log_y)
-        self.window.log_window.setGeometry(gx, log_y, gw, log_h)
+            # The hole covers the whole Roblox window (title bar + client), so
+            # use the OUTER window rect, not the client rect.
+            wr = self.win.window_rect()
+            game = ((wr.x, wr.y, wr.w, wr.h) if wr
+                    else (rect.x, rect.y, rect.w, rect.h))
+        self.window.place(game, screen)
 
     def attach(self):
         hwnd = self.win.find()

@@ -139,6 +139,15 @@ class RobloxWindow:
         ox, oy = win32gui.ClientToScreen(self.hwnd, (0, 0))
         return ClientRect(ox, oy, cr - cl, cb - ct)
 
+    def window_rect(self) -> ClientRect | None:
+        """The OUTER window rectangle (title bar + borders + client), in screen
+        px. The dashboard mask cuts its hole to this so the WHOLE Roblox window
+        shows through, not just the client area."""
+        if not self.is_alive():
+            return None
+        wl, wt, wr, wb = win32gui.GetWindowRect(self.hwnd)
+        return ClientRect(wl, wt, wr - wl, wb - wt)
+
     def focus(self):
         if not self.is_alive():
             return
