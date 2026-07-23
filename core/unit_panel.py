@@ -86,16 +86,35 @@ class UnitPanel:
         that was plainly there. Clicking an already-open panel's own unit
         toggles it shut, so each attempt re-opens what the previous one may
         have closed; an empty spot simply never shows a panel and returns
-        False after the last attempt."""
+        False after the last attempt.
+
+        Each retry nudges the aim by a few pixels in a tight cross. A marker
+        sits wherever the user clicked on the reference image, which is often
+        near the EDGE of the unit's clickable area rather than its middle -
+        and a unit can settle slightly off the click that placed it. Measured
+        live: the same coordinates selected a unit on one click and did
+        nothing on the next, which is what a hitbox edge looks like. The
+        offsets stay deliberately tiny (select_nudge_px, 5 by default):
+        markers for adjacent units can be as little as ~24px apart, so a
+        wider search would start selecting the NEIGHBOUR and answer for the
+        wrong unit. Aim is taken without the usual random jitter so the
+        pattern actually covers distinct points instead of re-sampling the
+        same blur."""
         if not self.ctx.can_check_panel:
             self.select(sx, sy, self.ctx.execution("place_select_wait_ms", 400))
             return None
 
-        attempts = max(1, self.ctx.execution("select_attempts", 3))
+        attempts = max(1, self.ctx.execution("select_attempts", 5))
         wait_ms = self.ctx.execution("select_panel_wait_ms", 900)
-        for _ in range(attempts):
+        n = max(0, self.ctx.execution("select_nudge_px", 5))
+        # Centre first, then a tight cross around it.
+        offsets = [(0, 0), (0, -n), (0, n), (-n, 0), (n, 0)]
+        for i in range(attempts):
             self.ctx.check_stop()
-            self.ctx.drv.click(sx, sy)
+            dx, dy = offsets[i % len(offsets)]
+            self.ctx.drv.move(sx + dx, sy + dy, jitter=False)
+            self.ctx.drv.wait(35)
+            self.ctx.drv.click()
             if self._wait_for_panel(rect, wait_ms):
                 return True
         return False

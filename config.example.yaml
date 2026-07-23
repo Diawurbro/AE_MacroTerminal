@@ -135,8 +135,14 @@ execution:
   # panel takes a variable moment to draw - so each attempt waits for the
   # panel instead of checking once and immediately clicking again, which would
   # toggle back off a panel that was still appearing.
-  select_attempts: 3
+  select_attempts: 5
   select_panel_wait_ms: 900
+  # How far each retry nudges the aim, in px. A marker often sits near the
+  # EDGE of a unit's clickable area rather than its middle, so a few pixels
+  # decides whether the click lands. Keep this WELL under half the spacing
+  # between adjacent markers (~24px on a 1066-wide window) or the nudge will
+  # start selecting the neighbouring unit instead.
+  select_nudge_px: 5
   # Somewhere harmless to park the mouse before judging a placement. An armed
   # card draws a ghost preview under the cursor, so the park point must be far
   # from BOTH the placement spot AND the unit-panel region the checks read
