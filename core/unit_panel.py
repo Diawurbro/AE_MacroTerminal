@@ -122,14 +122,10 @@ class UnitPanel:
                 return
         if not self._warned_deselect:
             self._warned_deselect = True
-            self.ctx.log("The unit panel won't close - deselect_btn looks "
-                         "mis-calibrated (Calibrate tab > 'Unit panel close "
-                         "(X)'), and clicking bare ground at "
-                         "execution.deselect_point didn't close it either. It "
-                         "will sit over the map and can make later placements "
-                         "think a unit is already there (they get skipped). Fix: "
-                         "calibrate deselect_btn, or move deselect_point onto "
-                         "empty ground.")
+            self.ctx.log("Couldn't close the unit panel — calibrate 'Unit "
+                         "panel close (X)' in the Calibrate tab, or move the "
+                         "deselect point onto empty ground. Until then it may "
+                         "sit over the map and cause skipped placements.")
 
     # ---------------- the three action buttons ----------------
 
@@ -151,8 +147,8 @@ class UnitPanel:
                     self.ctx.drv.tap(str(key))
                     return
                 except KeyError:
-                    self.ctx.log(f"unit_keys.{name} = {key!r} isn't a known "
-                                 "key - clicking the button instead.")
+                    self.ctx.log(f"{key!r} isn't a valid key for {name} — "
+                                 "clicking the button instead.")
         self.ctx.click_anchor(rect, f"{name}_btn")
 
     # ---------------- priority ----------------
@@ -187,9 +183,9 @@ class UnitPanel:
         # genuinely empty (the placement here failed) and None when there's no
         # baseline to judge, in which case we carry on exactly as before.
         if self.select_verified(rect, sx, sy) is False:
-            self.ctx.log(f"#{step.id} priority '{step.priority}': no unit at "
-                         f"{step.x:.3f}, {step.y:.3f} - skipping (the placement "
-                         "for this spot probably failed).")
+            self.ctx.log(f"Step {step.id}: can't set priority '{step.priority}' "
+                         f"— no unit at {step.x:.3f}, {step.y:.3f} (its "
+                         "placement likely failed).")
             return
         label_roi = self.ctx.anchor("priority_label_roi")
         target = step.priority
@@ -197,8 +193,8 @@ class UnitPanel:
         if not ocr.HAS_TESSERACT or not label_roi:
             reason = ("Tesseract not installed" if not ocr.HAS_TESSERACT
                       else "priority_label_roi not calibrated")
-            self.ctx.log(f"#{step.id} priority '{target}': {reason} - "
-                         "activating once, unverified.")
+            self.ctx.log(f"Step {step.id}: priority '{target}' — {reason}; "
+                         "setting it once without checking.")
             self.action(rect, "priority")
             self.ctx.drv.wait(150)
             return
@@ -208,7 +204,7 @@ class UnitPanel:
             return (word or "").strip().lower()
 
         if read() == target.lower():
-            self.ctx.log(f"#{step.id} priority already '{target}'.")
+            self.ctx.log(f"Step {step.id}: priority already '{target}'.")
             return
 
         limit = max(1, len(PRIORITY_TYPES))
@@ -219,11 +215,11 @@ class UnitPanel:
             self.ctx.drv.wait(150)
             cur = read()
             if cur == target.lower():
-                self.ctx.log(f"#{step.id} priority -> {target}.")
+                self.ctx.log(f"Step {step.id}: priority set to {target}.")
                 return
-        self.ctx.log(f"#{step.id} priority '{target}' not reached after "
-                     f"{limit} attempt(s) (last read: {cur!r}) - PRIORITY_TYPES "
-                     "may not match this game's actual options.")
+        self.ctx.log(f"Step {step.id}: couldn't set priority to '{target}' "
+                     f"after {limit} tries (last read: {cur!r}) — the option "
+                     "list may not match this game.")
 
     # ---------------- upgrading ----------------
 
@@ -293,8 +289,8 @@ class UnitPanel:
         upgrade and sell paths, so the message stays action-neutral."""
         opened = self.select_verified(rect, sx, sy)
         if opened is False:
-            self.ctx.log(f"#{step.id}: no unit at {step.x:.3f}, {step.y:.3f} - "
-                         "skipping (the placement for this spot probably "
+            self.ctx.log(f"Step {step.id}: no unit at {step.x:.3f}, "
+                         f"{step.y:.3f} — skipping (its placement likely "
                          "failed).")
             return False
         return True
@@ -309,11 +305,11 @@ class UnitPanel:
         for i in range(n):
             self.ctx.check_stop()
             if not self.upgrade_once(rect, step):
-                self.ctx.log(f"#{step.id} upgrade: got {i} of {n} level(s) - "
-                             "the next one never applied (maxed out, or not "
-                             "affordable within execution.upgrade_timeout_s).")
+                self.ctx.log(f"Step {step.id}: upgraded {i} of {n} levels — "
+                             "the next one wouldn't apply (maxed out, or "
+                             "couldn't afford it in time).")
                 return
-        self.ctx.log(f"#{step.id} upgraded x{n}.")
+        self.ctx.log(f"Step {step.id}: upgraded {n}×.")
 
     def upgrade_max(self, rect, sx, sy, step):
         """Buy levels until the unit is maxed.
@@ -333,9 +329,9 @@ class UnitPanel:
                 break
             got += 1
         lvl = self._read_level(rect)
-        where = f" - now {lvl[0]}/{lvl[1]}" if lvl else ""
-        tail = " (hit execution.max_upgrade_clicks)" if got >= cap else ""
-        self.ctx.log(f"#{step.id} upgrade-to-max: bought {got} level(s){where}{tail}.")
+        where = f" (now {lvl[0]}/{lvl[1]})" if lvl else ""
+        tail = " — reached the upgrade limit" if got >= cap else ""
+        self.ctx.log(f"Step {step.id}: upgraded to max — bought {got} levels{where}{tail}.")
 
     # ---------------- selling ----------------
 

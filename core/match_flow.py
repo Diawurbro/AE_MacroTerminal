@@ -57,8 +57,7 @@ class MatchFlow:
             if self.rewards.available():
                 showing, score = self._reward_strip(rect)
                 if showing:
-                    self.ctx.log(f"Match over - reward screens are up "
-                                 f"(match {score:.2f}).")
+                    self.ctx.log("Match finished — reward screens are up.")
                     return "ended"
             # The result screen itself is the most reliable end-of-match
             # signal: its Repeat Stage button is present on BOTH win and loss
@@ -69,14 +68,13 @@ class MatchFlow:
             if self.rewards.repeat_available():
                 showing, score = self._result_screen(rect)
                 if showing:
-                    self.ctx.log(f"Match over - result screen is up "
-                                 f"(match {score:.2f}).")
+                    self.ctx.log("Match finished — results screen is up.")
                     return "ended"
             return None
 
         got = self.ctx.poll_until(check, self.ctx.execution("result_timeout_s", 900))
         if got is None:
-            self.ctx.log("Timed out waiting for the match to end.")
+            self.ctx.log("Gave up waiting for the match to end.")
             return None
         # "ended" = match is over but not banner-classified; the result screen
         # read (read_result_screen) names the win/loss.
@@ -126,14 +124,14 @@ class MatchFlow:
             showing, _ = self._reward_strip(rect)
             if not showing:
                 if clicks:
-                    self.ctx.log(f"Reward screens cleared after {clicks} click(s).")
+                    self.ctx.log(f"Cleared the reward screens ({clicks} clicks).")
                 return True
             cx, cy = rect.to_screen(*point)
             self.ctx.drv.click(cx, cy)
             clicks += 1
             self.ctx.drv.wait(gap_ms)
-        self.ctx.log(f"Reward screens still showing after {cap} clicks "
-                     "(execution.max_reward_clicks) - giving up on this loop.")
+        self.ctx.log(f"Reward screens still showing after {cap} clicks — "
+                     "giving up this round.")
         return False
 
     def read_result_screen(self, rect):
@@ -149,11 +147,11 @@ class MatchFlow:
             lambda: self._result_screen(rect)[0] or None,
             self.ctx.execution("result_screen_timeout_s", 60))
         if not got:
-            self.ctx.log("Result screen never appeared - recording from the "
-                         "in-match check instead.")
+            self.ctx.log("Results screen never appeared — recording the result "
+                         "from the match instead.")
             return None
         outcome = self.detector.classify_result_screen(self.ctx.cap.grab(rect))
-        self.ctx.log(f"Result screen up - {outcome}.")
+        self.ctx.log(f"Results screen: {outcome}.")
         return None if outcome == "unknown" else outcome
 
     def click_repeat(self, rect) -> bool:
@@ -176,14 +174,14 @@ class MatchFlow:
         img = self.ctx.cap.grab_roi(rect, roi)
         showing, _, center = self.rewards.result_screen_loc(img)
         if not showing:
-            self.ctx.log("Not on the result screen - skipping Repeat.")
+            self.ctx.log("Not on the results screen — skipping Repeat.")
             return False
         x1, y1 = roi[0], roi[1]
         sx = int(rect.x + x1 * rect.w + center[0])
         sy = int(rect.y + y1 * rect.h + center[1])
         self.ctx.drv.click(sx, sy)
         self.ctx.drv.wait(self.ctx.execution("repeat_wait_ms", 2500))
-        self.ctx.log("Clicked Repeat Stage.")
+        self.ctx.log("Pressed 'Repeat Stage'.")
         return True
 
     # ---------------- the whole sequence ----------------
@@ -199,7 +197,7 @@ class MatchFlow:
         a far better Discord attachment than a frame of the map. Clicking
         Repeat before recording would replace it with the next match.
         """
-        self.ctx.log("Steps done - waiting for the match to end...")
+        self.ctx.log("Steps done — waiting for the match to end…")
         in_match = self.wait_for_match_end(rect)
         self.clear_reward_screens(rect)
         on_screen = self.read_result_screen(rect)

@@ -16,8 +16,8 @@ class PlaceAction(StepAction):
         # "is a unit already here?" click landed with a live card and placed
         # one - one extra unit per step, every step (HANDOFF 2.29).
         if self.hotbar.position(step.slot) is None:
-            self.ctx.log(f"#{step.id} place skipped - hotbar slot {step.slot} "
-                         "has no position.")
+            self.ctx.log(f"Step {step.id}: skipped — hotbar slot {step.slot} "
+                         "isn't in your loadout.")
             return
         # No deselect-first for a leftover panel (HANDOFF 2.38): the check
         # click in _unit_is_there resolves it by itself - clicking an empty
@@ -152,7 +152,7 @@ class PlaceAction(StepAction):
             self.ctx.check_stop()
             if self._unit_is_there(rect, target, use_panel, roi, baseline):
                 if placed > 1:
-                    self.ctx.log(f"#{step.id} placed after {placed} attempts.")
+                    self.ctx.log(f"Step {step.id}: unit placed (after {placed} tries).")
                 return True
             # `placed` guard: always make at least one real attempt, however
             # tight the timeout is set.
@@ -177,21 +177,20 @@ class PlaceAction(StepAction):
                 self._park_cursor(rect)
                 if self.ctx.panel_shows_unit(rect):
                     if placed > 1:
-                        self.ctx.log(f"#{step.id} placed after {placed} attempts.")
+                        self.ctx.log(f"Step {step.id}: unit placed (after {placed} tries).")
                     return True
 
         if use_panel:
-            why = "most likely never affordable"
+            why = "you probably never had enough cash"
         elif self._busy:
-            why = ("the spot never stopped moving, so nothing could be "
-                   "confirmed - check the marker isn't on the enemy path")
+            why = ("the spot kept changing, so it couldn't be confirmed — "
+                   "check the marker isn't on the enemy path")
         else:
-            why = ("most likely never affordable (verified by watching the "
-                   "map; calibrate upgrade_level_roi for the reliable check)")
-        self.ctx.log(f"#{step.id} place FAILED: {placed} attempt(s) over "
-                     f"{timeout}s and no unit ever appeared there - {why}. "
-                     "Continuing without it; later steps for this spot will "
-                     "find nothing.")
+            why = ("you probably never had enough cash (checked by watching "
+                   "the map — calibrate the unit-level readout for a more "
+                   "reliable check)")
+        self.ctx.log(f"Step {step.id}: couldn't place a unit after {placed} "
+                     f"tries in {timeout}s — {why}. Continuing without it.")
         return False
 
     def _after_place(self, step, rect, target: Target):

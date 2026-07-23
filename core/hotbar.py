@@ -39,14 +39,14 @@ class Hotbar:
             if 1 <= slot <= len(explicit):
                 x, y = explicit[slot - 1]
                 return float(x), float(y)
-            self.ctx.log(f"Hotbar slot {slot} is outside game.hotbar.slots "
-                         f"({len(explicit)} entries) - skipping the select click.")
+            self.ctx.log(f"Hotbar slot {slot} isn't in your loadout "
+                         f"({len(explicit)} units) — skipping it.")
             return None
 
         count = int(g.get("slot_count", 6))
         if not 1 <= slot <= count:
-            self.ctx.log(f"Hotbar slot {slot} is outside the {count}-slot bar "
-                         "(game.hotbar.slot_count) - skipping the select click.")
+            self.ctx.log(f"Hotbar slot {slot} isn't in your {count}-unit "
+                         "loadout — skipping it.")
             return None
         spacing = float(g.get("spacing", 0.0605))
         cx = float(g.get("center_x", 0.5))
@@ -63,9 +63,9 @@ class Hotbar:
         to click the map with nothing armed."""
         if self.ctx.game("use_unit_keys", True):
             if not 1 <= slot <= min(9, self._slot_count()):
-                self.ctx.log(f"Hotbar slot {slot} is outside the "
-                             f"{self._slot_count()}-slot bar "
-                             "(game.hotbar.slot_count) - not arming it.")
+                self.ctx.log(f"Hotbar slot {slot} isn't in your "
+                             f"{self._slot_count()}-unit loadout — "
+                             "skipping it.")
                 return False
             self.ctx.drv.tap(str(slot))
             self.ctx.drv.wait(settle_ms)

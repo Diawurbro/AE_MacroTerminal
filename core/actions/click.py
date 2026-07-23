@@ -18,6 +18,6 @@ class ClickAction(StepAction):
     def execute(self, step, rect, target: Target):
         if step.slot and step.slot >= 1:
             if not self.hotbar.select(rect, step.slot, settle_ms=100):
-                self.ctx.log(f"#{step.id} click: hotbar slot {step.slot} has no "
-                             "position - clicking without arming a unit.")
+                self.ctx.log(f"Step {step.id}: slot {step.slot} isn't in your "
+                             "loadout — clicking without a unit.")
         self.ctx.drv.click(target.sx, target.sy)

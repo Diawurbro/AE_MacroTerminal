@@ -61,7 +61,7 @@ def send_test(webhook_url: str, log=lambda m: None):
     if not webhook_url:
         log("No webhook URL set.")
         return
-    payload = {"content": "TD Macro - webhook test. If you see this, it works."}
+    payload = {"content": "TD Macro webhook test — if you can see this, it's working."}
     threading.Thread(
         target=_post, args=(webhook_url, payload, None, log),
         kwargs={"ok_message": "Webhook test sent successfully."},

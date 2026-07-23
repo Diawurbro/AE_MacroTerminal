@@ -385,7 +385,7 @@ class SetupRunPanel(QGroupBox):
         top.addStretch(1)
         self.btn_exit = QPushButton("Exit")
         self.btn_exit.setObjectName("ghost")
-        self.btn_exit.setToolTip("Quit TD Macro (stops a running macro first).")
+        self.btn_exit.setToolTip("Quit TD Macro. Stops the macro first if it's running.")
         self.btn_exit.clicked.connect(self.exit_requested.emit)
         top.addWidget(self.btn_exit)
         v.addLayout(top)
@@ -401,7 +401,7 @@ class SetupRunPanel(QGroupBox):
         lbl_prof.setObjectName("muted")
         prof_row.addWidget(lbl_prof)
         self.cb_profile = QComboBox()
-        self.cb_profile.setToolTip("Pick one of your saved stage profiles.")
+        self.cb_profile.setToolTip("Choose a saved stage profile.")
         self.cb_profile.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.cb_profile.setMinimumHeight(38)
         self.cb_profile.activated.connect(self._on_profile_picked)
@@ -411,11 +411,11 @@ class SetupRunPanel(QGroupBox):
         prof_row.addWidget(self.lbl_profile)
         v.addLayout(prof_row)
 
-        self.btn_attach = QPushButton("Attach + center window")
+        self.btn_attach = QPushButton("Attach game window")
         self.btn_attach.setMinimumHeight(42)
         self.btn_attach.setToolTip(
-            "Find the Roblox window, resize its client area to 1280x720 and "
-            "pin it to the top-left, with this dashboard docked around it.")
+            "Find Roblox, resize it to 1280×720, and dock this dashboard "
+            "around it.")
         self.btn_attach.clicked.connect(self.attach_requested.emit)
         v.addWidget(self.btn_attach)
 
@@ -423,31 +423,29 @@ class SetupRunPanel(QGroupBox):
         row3.setSpacing(8)
         self.btn_camera = QPushButton("Test camera view")
         self.btn_camera.setToolTip(
-            "Runs the right-drag top-down sequence against the attached Roblox "
-            "window (zoom in, pitch down, zoom out - all hard clamps) so you can "
-            "preview it before capturing the reference image in the stage editor.")
+            "Preview the top-down camera the macro uses, so you can check it "
+            "before capturing a reference image.")
         self.btn_camera.clicked.connect(self.camera_test_requested.emit)
         row3.addWidget(self.btn_camera, 1)
         self.btn_editor = QPushButton("Stage editor")
-        self.btn_editor.setToolTip("Open the stage editor window to build / edit steps.")
+        self.btn_editor.setToolTip("Open the stage editor to build or edit your steps.")
         self.btn_editor.clicked.connect(self.editor_requested.emit)
         row3.addWidget(self.btn_editor, 1)
-        self.btn_load = QPushButton("Load from file")
-        self.btn_load.setToolTip("Browse for a profile (.json) that isn't in the "
-                                 "dropdown - e.g. one you saved elsewhere.")
+        self.btn_load = QPushButton("Load profile…")
+        self.btn_load.setToolTip("Open a saved profile from a file.")
         self.btn_load.clicked.connect(self.load_requested.emit)
         row3.addWidget(self.btn_load, 1)
         v.addLayout(row3)
 
         # Runs are always infinite - Stop / F12 is how one ends.
         self.btn_shot = QPushButton("Screenshot")
-        self.btn_shot.setToolTip("Save a PNG of the game client area.")
+        self.btn_shot.setToolTip("Save a screenshot of the game window.")
         self.btn_shot.clicked.connect(self.screenshot_requested.emit)
         v.addWidget(self.btn_shot)
 
-        self.chk_start_game = QCheckBox("Press Start Game at run start")
+        self.chk_start_game = QCheckBox("Auto-press 'Start Game' each round")
         self.chk_start_game.setToolTip(
-            "Auto-click the in-game 'Start Game' button when a run begins.")
+            "Automatically press the in-game 'Start Game' button at the start of each round.")
         self.chk_start_game.toggled.connect(self.start_game_toggled.emit)
         v.addWidget(self.chk_start_game)
 
@@ -464,7 +462,7 @@ class SetupRunPanel(QGroupBox):
         self.btn_stop = QPushButton("Stop  (F12)")
         self.btn_stop.setObjectName("danger")
         self.btn_stop.setMinimumHeight(44)
-        self.btn_stop.setToolTip("Emergency stop - finishes the current step, then aborts.")
+        self.btn_stop.setToolTip("Emergency stop. Finishes the current step, then halts.")
         self.btn_stop.setEnabled(False)   # nothing to stop until a run starts
         self.btn_stop.clicked.connect(self.stop_requested.emit)
         run_row.addWidget(self.btn_stop, 1)
@@ -525,11 +523,11 @@ class SetupRunPanel(QGroupBox):
 
     def set_attached(self, ok: bool, detail: str = ""):
         if ok:
-            text = f"attached <span style='color:{DIM}'>{html.escape(detail)}</span>"
+            text = f"connected <span style='color:{DIM}'>{html.escape(detail)}</span>"
             self.lbl_attach.setText(f"{_dot(OK)} Roblox {text}")
         else:
             self.lbl_attach.setText(f"{_dot(BAD)} Roblox "
-                                    f"<span style='color:{DIM}'>not attached</span>")
+                                    f"<span style='color:{DIM}'>not connected</span>")
 
     def set_profile(self, name: str, steps: int):
         # The name itself now lives in the dropdown, so this label only carries
