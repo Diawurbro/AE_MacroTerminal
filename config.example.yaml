@@ -135,19 +135,18 @@ execution:
   # panel takes a variable moment to draw - so each attempt waits for the
   # panel instead of checking once and immediately clicking again, which would
   # toggle back off a panel that was still appearing.
-  select_attempts: 6
+  select_attempts: 9
   select_panel_wait_ms: 900
-  # Re-selecting a placed unit aims a little way UP the unit's body: a place
-  # marker points at the GROUND the unit was dropped on, but selecting has to
-  # hit the model standing above it, so the marker itself sits on the bottom
-  # edge of the clickable area.
-  # select_lift_px is one upward step (retries climb 1x, 2x, 3x).  Safe to
-  # raise - the nearest marker above is typically ~100px away.
-  # select_nudge_px is the sideways lean, which must stay SMALL: adjacent
-  # units can be ~28px apart horizontally, and a wider reach would select the
-  # neighbour and act on the wrong unit.
-  select_lift_px: 8
-  select_nudge_px: 4
+  # Re-selecting a placed unit searches a small spiral around the marker: a
+  # place marker points at the GROUND the unit stands on, but selecting has to
+  # hit the unit's own clickable area, which sits slightly off it. Measured on
+  # a live unit, that area was only about 8x8 PIXELS and the marker itself
+  # missed - so the search steps in small increments rather than striding far.
+  # select_max_px MUST stay well under half the spacing between adjacent
+  # markers (~28px horizontally here) or the search will reach the neighbouring
+  # unit and act on the wrong one.
+  select_step_px: 4
+  select_max_px: 8
   # Somewhere harmless to park the mouse before judging a placement. An armed
   # card draws a ghost preview under the cursor, so the park point must be far
   # from BOTH the placement spot AND the unit-panel region the checks read
@@ -164,13 +163,14 @@ execution:
   # stuck panel makes every later placement think a unit is already there and skip
   # it, so a swallowed click is worth a couple more tries.
   deselect_attempts: 3
-  # An upgrade row keeps clicking Upgrade until the unit panel's "Upgrade
-  # N/M" readout actually changes - "nothing happened" is nearly always
-  # "can't afford the next level YET", which is a wait, not a failure
-  # (HANDOFF 2.27). This timeout is only the give-up guard, per level;
-  # hitting it is what "maxed out or never affordable" looks like. Raise it
-  # if a late-game level takes longer than two minutes to afford.
-  upgrade_timeout_s: 120
+  # An upgrade row clicks Upgrade until the unit panel's "Upgrade N/M" readout
+  # changes (a level was bought). It gives up on a level after this many
+  # clicks in a row produce NO change - which means maxed, gone, or not yet
+  # affordable. Kept small on purpose: spam-until-maxed, not wait-for-income,
+  # so a maxed unit is noticed in a second or two instead of hanging with its
+  # info panel open. Raise it only if you WANT the macro to sit and wait for
+  # cash to upgrade further.
+  upgrade_no_change_limit: 6
   upgrade_confirm_wait_ms: 400
   # "Upgrade to max" stops on its own when a level fails to apply; this is
   # just the hard bound on how many levels it will ever buy for one unit.

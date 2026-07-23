@@ -64,6 +64,23 @@ class UnitPanel:
             self.ctx.check_stop()
             self.ctx.drv.wait(80)
 
+    @staticmethod
+    def _search_offsets(step_px: int, max_px: int) -> list[tuple[int, int]]:
+        """Points to try around a marker, nearest first.
+
+        Ordered by distance so the common case - a marker that is on or very
+        near the unit - is found in the first click or two, and biased UP-LEFT
+        on ties because that is where the measured hitbox sat relative to the
+        marker (the unit model is drawn above the ground point it stands on).
+        """
+        pts = []
+        rng = range(-max_px, max_px + 1, step_px)
+        for dy in rng:
+            for dx in rng:
+                pts.append((dx, dy))
+        pts.sort(key=lambda p: (p[0] * p[0] + p[1] * p[1], p[1], p[0]))
+        return pts
+
     def select_verified(self, rect, sx, sy) -> bool | None:
         """Click a spot and report whether a unit got selected. Returns None
         when there's no way to check the panel at all - callers treat that as
@@ -88,21 +105,21 @@ class UnitPanel:
         have closed; an empty spot simply never shows a panel and returns
         False after the last attempt.
 
-        Each retry walks the aim UPWARD from the marker. A place step's
-        coordinate points at the GROUND - it tells the game where on the
-        terrain to drop the unit - while selecting has to hit the unit's
-        BODY, which is drawn standing above that spot. So the marker lands at
-        the unit's feet, on the bottom edge of its clickable area, where the
-        driver's random jitter decides the outcome: measured live, the same
-        coordinates selected a unit on one click and did nothing on the next.
-        Walking up searches the body instead of re-sampling the edge.
+        Each retry moves the aim a little, because the marker itself often
+        does NOT hit the unit. A place step's coordinate points at the GROUND
+        the unit was dropped on, while selecting has to hit the unit's own
+        clickable area - and that area turns out to be small and offset from
+        the marker. Mapped live on a placed unit, clicking a grid around the
+        marker: the region that selects was roughly 8x8 PIXELS, centred a few
+        px left and above the marker, with the marker itself missing every
+        time. So this searches a dense spiral in select_step_px increments
+        rather than striding far in one direction - a long climb simply
+        overshoots a target that size.
 
-        The two axes get very different room, and the profile's own markers
-        say why: adjacent units can sit ~28px apart HORIZONTALLY, so sideways
-        offsets stay tiny (select_nudge_px) or they would select the
-        NEIGHBOUR and silently act on the wrong unit. The nearest marker
-        ABOVE is far away (~112px in the same profile), so lifting by
-        select_lift_px per step is safe well past a unit's height.
+        select_max_px bounds the search. It must stay well under half the
+        spacing between adjacent markers (~28px horizontally in the sample
+        profile) or the spiral will reach the NEIGHBOUR and silently act on
+        the wrong unit.
 
         Aim is taken without the usual random jitter so the pattern covers
         distinct points instead of re-sampling the same blur."""
@@ -110,14 +127,11 @@ class UnitPanel:
             self.select(sx, sy, self.ctx.execution("place_select_wait_ms", 400))
             return None
 
-        attempts = max(1, self.ctx.execution("select_attempts", 6))
+        step_px = max(1, self.ctx.execution("select_step_px", 4))
+        max_px = max(step_px, self.ctx.execution("select_max_px", 8))
+        offsets = self._search_offsets(step_px, max_px)
+        attempts = max(1, self.ctx.execution("select_attempts", len(offsets)))
         wait_ms = self.ctx.execution("select_panel_wait_ms", 900)
-        n = max(0, self.ctx.execution("select_nudge_px", 4))
-        lift = max(1, self.ctx.execution("select_lift_px", 8))
-        # Ground point first, then climb the unit's body; the last two lean
-        # slightly aside in case the model is drawn off-centre.
-        offsets = [(0, 0), (0, -lift), (0, -2 * lift), (0, -3 * lift),
-                   (-n, -lift), (n, -lift)]
         for i in range(attempts):
             self.ctx.check_stop()
             dx, dy = offsets[i % len(offsets)]
@@ -312,14 +326,19 @@ class UnitPanel:
         the readout and is counted before OCR is ever looked at - so "5/8"
         misread as "5/5" no longer maxes a unit at level 5 (the reported bug).
 
-        Bails immediately if the panel CLOSES mid-loop. Without that check the
-        readout stops changing for a third reason the two above can't be told
-        apart from - the panel simply isn't there any more, so the Upgrade
-        keypress goes nowhere - and the loop spends the full upgrade_timeout_s
-        (2 minutes) pressing a key into the void before giving up. Seen on a
-        real run: "Step 5: upgrade to max" sat there for 90s+ with the panel
-        visibly shut. Only checked when the panel probe is calibrated, since
-        the fallback baseline can't answer this reliably.
+        Stops after a short run of NO-CHANGE clicks (upgrade_no_change_limit),
+        not the full upgrade_timeout_s. The readout stops changing for three
+        reasons that look identical - maxed, can't afford the next level yet,
+        or the panel is gone - and the old code waited out the whole 2-minute
+        timeout on every one of them. When OCR can't read the N/M caption (an
+        overlay across it, a bad frame) the maxed case can't be told from the
+        others, so a maxed unit sat there with its info panel open for the
+        entire timeout and the run never advanced (the reported "upgrade to
+        max doesn't close the panel or move on"). A few unproductive clicks in
+        a row is enough to call it done: the user asked for spam-until-maxed,
+        not wait-for-income, so there is nothing to wait out. The OCR max read
+        and the panel-closed check still short-circuit even sooner when they
+        can.
 
         Falls back to a single unverified click when upgrade_level_roi isn't
         calibrated - there is nothing to watch, and one click is what the old
@@ -330,10 +349,10 @@ class UnitPanel:
             self.ctx.drv.gap()
             return True
 
-        timeout = self.ctx.execution("upgrade_timeout_s", 120)
         confirm = self.ctx.execution("upgrade_confirm_wait_ms", 400)
-        deadline = time.monotonic() + timeout
+        no_change_limit = max(1, self.ctx.execution("upgrade_no_change_limit", 6))
         can_probe = self.ctx.can_check_panel
+        no_change = 0
         while True:
             self.ctx.check_stop()
             self.action(rect, "upgrade")
@@ -348,9 +367,10 @@ class UnitPanel:
                 return False
             lvl = self._read_level(rect)
             if lvl and lvl[0] >= lvl[1]:
-                return False   # maxed - stop now instead of waiting out the timeout
-            if time.monotonic() >= deadline:
-                return False
+                return False   # maxed (OCR-confirmed) - stop now
+            no_change += 1
+            if no_change >= no_change_limit:
+                return False   # nothing bought after several tries - treat as done
 
     def _open_panel(self, rect, sx, sy, step) -> bool:
         """Select the unit and refuse to work on empty ground. Shared by the
