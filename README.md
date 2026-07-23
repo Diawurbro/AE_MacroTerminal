@@ -158,8 +158,3 @@ placement detection, DPI scaling other than 100%, multi-resolution support.
 
 ---
 
-## Note
-
-Roblox's Terms of Use prohibit automation at the platform level. Permission
-from the game owner does not cover this. Account risk is on you — an alt
-account is recommended.
