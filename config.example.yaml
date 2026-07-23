@@ -154,24 +154,6 @@ execution:
   # coordinates that no longer mean anything. Set false to warn and run
   # anyway, e.g. while calibrating.
   abort_on_ref_mismatch: true
-  # Camera normalization cadence.
-  #   true (default) = normalize + verify ONCE on the first stage entry (auto - no
-  #     "Test camera view" needed), then reuse it for every repeat. Start Game
-  #     fires every round. Repeat Stage keeps the same camera and nothing here
-  #     moves the character, so the view set on entry holds.
-  #   false = re-normalize + re-verify on EVERY round. A camera that drifts is
-  #     re-fixed, BUT a round whose camera won't match the reference is skipped
-  #     BEFORE Start Game (abort_on_ref_mismatch, so units don't land at the map
-  #     edge) - i.e. a flaky reference match means Start won't fire that round.
-  # Either way the camera is only touched on entry, before Start Game - never
-  # during a match. With true, repeats still VERIFY the reference every round
-  # and re-run the normalize only when it stopped matching - Repeat Stage
-  # respawns the character and Roblox resets the camera on respawn, so a
-  # repeat can't just trust the entry camera (HANDOFF 2.39).
-  normalize_camera_once: true
-  # On a repeat, how long to wait for the reference to match before concluding
-  # the camera was reset (right after Repeat the stage can still be fading in).
-  repeat_ref_wait_s: 8
   # Stop the whole run after this many loops in a row that ended before a
   # single step ran. Without it, an infinite run with a broken camera retries
   # forever, doing nothing, all night.

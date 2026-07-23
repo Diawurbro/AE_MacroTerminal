@@ -51,12 +51,6 @@ class Executor(QThread):
         self.stats_path = stats_path
         self.templates_dir = templates_dir
         self._stop = False
-        # Set True once the camera has been normalized+verified for this run.
-        # With execution.normalize_camera_once on, the camera is set a single
-        # time on stage entry and then trusted for every repeat - re-running
-        # the flaky normalize sequence each round is what was corrupting a
-        # good camera and tripping the reference-mismatch abort (see _run_once).
-        self._camera_set = False
 
     def request_stop(self):
         self._stop = True
@@ -166,32 +160,25 @@ class Executor(QThread):
         self.setup.teleport_to_spawn(rect)
         self._check_stop()
 
-        # Camera: full normalize+verify on the first entry; on repeats VERIFY
-        # every time and re-run the flaky normalize only when the verify says
-        # the camera actually moved (verify_or_renormalize). Repeats can't just
-        # trust the entry camera: Repeat Stage respawns the character and
-        # Roblox resets the camera on respawn - a round that skipped the check
-        # ran on the default angled view and placed nothing where it thought
-        # (HANDOFF 2.39). Set execution.normalize_camera_once false to run the
-        # full normalize+verify every round instead. `_camera_set` (not
-        # loop_no) gates the entry path, so a first attempt that aborts still
-        # retries on the next loop.
-        normalize_once = self.ctx.execution("normalize_camera_once", True)
-        if not self._camera_set or not normalize_once:
-            camera_ok = self.setup.normalize_and_verify(rect)
-        else:
-            camera_ok = self.setup.verify_or_renormalize(rect)
-        if camera_ok:
-            self._camera_set = True
-        elif self.ctx.execution("abort_on_ref_mismatch", True):
-            self.log.emit(
-                "Skipping this round — the camera doesn't match, so units "
-                "would land in the wrong place. Fix the camera, re-capture "
-                "the reference, or lower the match threshold if the score "
-                "above looks right for a correct camera.")
-            record("abort")
-            return False
-        else:
+        # Full normalize+verify EVERY round, entry or repeat - no shortcut that
+        # skips it when the camera "looked fine" last time. Repeat Stage
+        # respawns the character and Roblox resets the camera on respawn, so
+        # a round that trusted the previous camera ran on the default angled
+        # view and placed nothing where it thought (HANDOFF 2.39). Clamp-based
+        # normalize is idempotent - running it again when the camera is
+        # already correct lands in the same place - so doing it unconditionally
+        # costs a little time but makes every round follow the identical
+        # sequence instead of branching on what the last round happened to do.
+        camera_ok = self.setup.normalize_and_verify(rect)
+        if not camera_ok:
+            if self.ctx.execution("abort_on_ref_mismatch", True):
+                self.log.emit(
+                    "Skipping this round — the camera doesn't match, so units "
+                    "would land in the wrong place. Fix the camera, re-capture "
+                    "the reference, or lower the match threshold if the score "
+                    "above looks right for a correct camera.")
+                record("abort")
+                return False
             self.log.emit("Warning: the camera doesn't match, but 'skip on "
                           "mismatch' is off — continuing anyway; placements "
                           "may be wrong.")

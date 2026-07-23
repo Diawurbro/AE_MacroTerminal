@@ -118,45 +118,6 @@ class StageSetup:
                      f"{threshold}).")
         return False
 
-    def verify_or_renormalize(self, rect) -> bool:
-        """Repeat-loop camera check: VERIFY first, normalize only on mismatch.
-
-        Repeat Stage restarts the stage, which respawns the character - and
-        Roblox resets the camera on respawn (HANDOFF 2.3). So "the camera set
-        on entry holds across repeats" (2.33's assumption) is wrong for this
-        game: round 2 ran on the default angled camera with no check at all,
-        every coordinate meant a different world position, and nothing was
-        really placed (HANDOFF 2.39). Verifying is cheap and not flaky, so do
-        it every round; the flaky normalize sequence only runs when the verify
-        says the camera actually moved.
-
-        Polls the score for up to execution.repeat_ref_wait_s first - right
-        after Repeat the stage can still be fading in, and a premature
-        "mismatch" would run the normalize against a loading screen."""
-        threshold = self.ctx.vision("ref_match_threshold", 0.65)
-        first = self.reference_score(rect)
-        if first is None:
-            return True   # no reference to compare - same no-op as entry
-        if first >= threshold:
-            self.ctx.log(f"Camera still lined up ({first:.3f}) — leaving it.")
-            return True
-
-        wait_s = self.ctx.execution("repeat_ref_wait_s", 8)
-        state = {"score": first}
-
-        def settled():
-            state["score"] = self.reference_score(rect) or 0.0
-            return state["score"] >= threshold or None
-
-        if self.ctx.poll_until(settled, wait_s):
-            self.ctx.log(f"Camera still lined up ({state['score']:.3f}) — "
-                         "leaving it.")
-            return True
-        self.ctx.log(f"Camera changed after Repeat (best "
-                     f"{max(first, state['score']):.3f}, needs {threshold}) — "
-                     "the game reset it. Re-adjusting…")
-        return self.normalize_and_verify(rect)
-
     def capture_panel_baseline(self, rect):
         """Record what the unit panel's level readout looks like with NOTHING
         selected. Called once per loop, after Start Game.
