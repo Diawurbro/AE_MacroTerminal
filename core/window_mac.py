@@ -52,11 +52,26 @@ def _ax_size(value: tuple[float, float]):
 
 
 class RobloxWindow:
+    # How much room the dashboard needs beside/below the game to be usable -
+    # a rough floor matching ui/main_window.py's MARGIN/GAP/COL_W, not an
+    # exact mirror of it (this file shouldn't import Qt-side layout code).
+    _SIDE_W_FLOOR = 24 * 2 + 16 + 340   # margins + gap + a usable column width
+    _LOG_H_FLOOR = 24 * 2 + 16 + 120    # margins + gap + a usable log strip
+
     def __init__(self, cfg: dict):
         w = cfg["window"]
         self.title = w.get("window_title", "Roblox")
-        self.cw = w["client_width"]
-        self.ch = w["client_height"]
+        # Reference size: what profiles/templates/OCR crops were calibrated
+        # against. The ACTUAL on-screen size (self.cw/ch) may be smaller on a
+        # screen that can't fit this beside the dashboard column - clicks are
+        # unaffected (normalized coordinates), and vision/capture.py resizes
+        # every capture back up to this reference size before any template
+        # match/OCR happens, so a smaller on-screen window doesn't desync
+        # anything calibrated at the reference resolution.
+        self.ref_cw = w["client_width"]
+        self.ref_ch = w["client_height"]
+        self.cw = self.ref_cw
+        self.ch = self.ref_ch
         # Mac has no window-class concept; match Roblox by owning process
         # name instead. Overridable in case the mac client's process name
         # ever differs from "Roblox".
@@ -64,12 +79,29 @@ class RobloxWindow:
         self.hwnd = None       # CoreGraphics window number, once found
         self._pid = None
         self._ax_win = None    # cached AXUIElement for the window
+        self._fit_to_screen()  # so cw/ch are already correct pre-attach too
 
     # ---------------- discovery ----------------
+
+    def _fit_to_screen(self):
+        """Shrink cw/ch (aspect-ratio preserved) if ref_cw x ref_ch can't fit
+        beside the dashboard column on this screen. No-op (cw/ch stay at the
+        reference size) when there's room - the normal case on a big enough
+        display."""
+        if not HAS_MAC_APIS:
+            return
+        bounds = CGDisplayBounds(CGMainDisplayID())
+        sw, sh = bounds.size.width, bounds.size.height
+        avail_w = max(200, sw - self._SIDE_W_FLOOR)
+        avail_h = max(200, sh - self._LOG_H_FLOOR)
+        scale = min(1.0, avail_w / self.ref_cw, avail_h / self.ref_ch)
+        self.cw = max(1, int(self.ref_cw * scale))
+        self.ch = max(1, int(self.ref_ch * scale))
 
     def find(self) -> int | None:
         if not HAS_MAC_APIS:
             return None
+        self._fit_to_screen()
         info_list = CGWindowListCopyWindowInfo(
             kCGWindowListOptionOnScreenOnly, kCGNullWindowID)
         for w in info_list:
@@ -132,7 +164,17 @@ class RobloxWindow:
         AXUIElementSetAttributeValue(win_ref, kAXPositionAttribute, _ax_point((x, y)))
         AXUIElementSetAttributeValue(win_ref, kAXSizeAttribute, _ax_size((self.cw, self.ch)))
         time.sleep(0.2)
-        return self.client_rect()
+        rect = self.client_rect()
+        # Roblox enforces its own minimum window size (observed: clamps any
+        # requested height below ~628pt back up to 628, width unaffected) -
+        # not something we can override via AX. Treat whatever it actually
+        # settled at as ground truth rather than the original target, so a
+        # screen where _fit_to_screen's request lands below that floor still
+        # ends up self-consistent (main.py compares against these, not the
+        # unreachable original ask) instead of permanently warning.
+        if rect is not None:
+            self.cw, self.ch = rect.w, rect.h
+        return rect
 
     def client_rect(self) -> ClientRect | None:
         """Borderless in practice - client area == window frame (see layout())."""

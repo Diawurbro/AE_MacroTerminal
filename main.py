@@ -245,7 +245,14 @@ class App:
         the expected top-left placement before the first attach."""
         screen = QApplication.primaryScreen().availableGeometry()
         if rect is None:
-            game = (screen.x() + MARGIN, screen.y() + MARGIN, GAME_W, GAME_H)
+            # win.cw/ch reflect the actual size the backend intends to use -
+            # equal to GAME_W/GAME_H normally, but a screen too small to fit
+            # the reference size beside the column (see window_mac.py's
+            # _fit_to_screen) shrinks it, so the pre-attach placeholder
+            # matches what attach() is about to produce instead of overflowing.
+            gw = getattr(self.win, "cw", GAME_W)
+            gh = getattr(self.win, "ch", GAME_H)
+            game = (screen.x() + MARGIN, screen.y() + MARGIN, gw, gh)
         else:
             # The hole covers the whole Roblox window (title bar + client), so
             # use the OUTER window rect, not the client rect.
@@ -267,8 +274,15 @@ class App:
         if self.rect:
             self._layout_docks(self.rect)
             self.window.setup_run.set_attached(True, f"{self.rect.w}x{self.rect.h}")
-            want_w = self.cfg["window"]["client_width"]
-            want_h = self.cfg["window"]["client_height"]
+            # Compare against win.cw/ch (what this backend actually asked
+            # for), not the raw config size directly - on a screen too small
+            # to fit the reference size beside the dashboard column, the mac
+            # backend deliberately asks for something smaller (window_mac.py's
+            # _fit_to_screen) and still works correctly (clicks are
+            # normalized, captures get resized back up), so that's not an
+            # error case the way a genuinely wrong size is.
+            want_w = getattr(self.win, "cw", self.cfg["window"]["client_width"])
+            want_h = getattr(self.win, "ch", self.cfg["window"]["client_height"])
             if (self.rect.w, self.rect.h) != (want_w, want_h):
                 self.window.log.write(
                     f"Warning: connected, but the window is "
@@ -371,7 +385,8 @@ class App:
         executor keeps its OWN Capture on the worker thread - mss handles are
         per-thread - so this shared one is for the GUI thread only."""
         if self._capture_obj is None:
-            self._capture_obj = vcap.Capture()
+            w = self.cfg["window"]
+            self._capture_obj = vcap.Capture(ref_size=(w["client_width"], w["client_height"]))
         return self._capture_obj
 
     def _capture(self, rect, path):

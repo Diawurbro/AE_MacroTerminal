@@ -68,7 +68,8 @@ class Executor(QThread):
         from core.input_driver import InputDriver
 
         self.drv = InputDriver(self.cfg)
-        self.cap = vcap.Capture()
+        w = self.cfg["window"]
+        self.cap = vcap.Capture(ref_size=(w["client_width"], w["client_height"]))
         self.ctx = RunContext(self.cfg, self.profile, self.drv, self.cap,
                               self.log.emit, self._check_stop)
 

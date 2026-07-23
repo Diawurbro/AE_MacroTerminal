@@ -91,7 +91,7 @@ game:
   # so its centre is 0.296. The old 0.32 guess landed at y=230 - just past
   # the bottom edge, on the dialog border rather than the button.
   press_start_game: true
-  start_game_btn: [0.50, 0.296]
+  start_game_btn: [0.4996, 0.348]
   # Settle time after clicking Start Game. Short on purpose: the first
   # placement is gated on its own verification anyway, so waiting here
   # only delays the run.

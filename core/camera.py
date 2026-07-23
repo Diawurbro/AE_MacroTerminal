@@ -45,6 +45,9 @@ class CameraNormalizer:
         self.drag_step_px = c["drag_step_px"]
         self.drag_step_delay_ms = c["drag_step_delay_ms"]
         self.drv = input_driver
+        # pitch_down_clamp_drag is calibrated in pixels at this reference
+        # height - see normalize()'s scale comment below.
+        self.ref_ch = cfg["window"]["client_height"]
 
     def normalize(self, rect):
         cx, cy = rect.x + rect.w // 2, rect.y + rect.h // 2
@@ -59,8 +62,21 @@ class CameraNormalizer:
         # Start the downward drag near the top of the window so its full
         # travel stays inside the viewport / on-screen (a drag from centre
         # would run off the bottom of a 1080p screen).
-        drag = abs(self.pitch_down_clamp_drag)
-        start_y = min(rect.y + 60, cy)
+        #
+        # Scaled to the window's ACTUAL height, not just used at face value:
+        # pitch_down_clamp_drag (600px default) was measured against ref_ch
+        # (window.client_height, 720). A window running smaller than that -
+        # e.g. mac's _fit_to_screen shrinking it to fit a small laptop screen
+        # beside the dashboard column - has proportionally less room, so an
+        # unscaled drag overshoots past the window's own bottom edge (the
+        # cursor leaves the game entirely and the drag never registers, so
+        # the camera never reaches the pitch clamp and the zoom-out after it
+        # looks like it silently did nothing). On Windows rect.h always equals
+        # ref_ch, so scale is exactly 1.0 here - byte-identical to before.
+        scale = (rect.h / self.ref_ch) if self.ref_ch else 1.0
+        top_margin = max(10, int(60 * scale))
+        drag = max(1, int(abs(self.pitch_down_clamp_drag) * scale))
+        start_y = min(rect.y + top_margin, cy)
         self.drv.right_drag((cx, start_y), drag,
                             self.drag_step_px, self.drag_step_delay_ms)
         self.drv.wait(150)
