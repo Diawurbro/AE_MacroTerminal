@@ -88,27 +88,36 @@ class UnitPanel:
         have closed; an empty spot simply never shows a panel and returns
         False after the last attempt.
 
-        Each retry nudges the aim by a few pixels in a tight cross. A marker
-        sits wherever the user clicked on the reference image, which is often
-        near the EDGE of the unit's clickable area rather than its middle -
-        and a unit can settle slightly off the click that placed it. Measured
-        live: the same coordinates selected a unit on one click and did
-        nothing on the next, which is what a hitbox edge looks like. The
-        offsets stay deliberately tiny (select_nudge_px, 5 by default):
-        markers for adjacent units can be as little as ~24px apart, so a
-        wider search would start selecting the NEIGHBOUR and answer for the
-        wrong unit. Aim is taken without the usual random jitter so the
-        pattern actually covers distinct points instead of re-sampling the
-        same blur."""
+        Each retry walks the aim UPWARD from the marker. A place step's
+        coordinate points at the GROUND - it tells the game where on the
+        terrain to drop the unit - while selecting has to hit the unit's
+        BODY, which is drawn standing above that spot. So the marker lands at
+        the unit's feet, on the bottom edge of its clickable area, where the
+        driver's random jitter decides the outcome: measured live, the same
+        coordinates selected a unit on one click and did nothing on the next.
+        Walking up searches the body instead of re-sampling the edge.
+
+        The two axes get very different room, and the profile's own markers
+        say why: adjacent units can sit ~28px apart HORIZONTALLY, so sideways
+        offsets stay tiny (select_nudge_px) or they would select the
+        NEIGHBOUR and silently act on the wrong unit. The nearest marker
+        ABOVE is far away (~112px in the same profile), so lifting by
+        select_lift_px per step is safe well past a unit's height.
+
+        Aim is taken without the usual random jitter so the pattern covers
+        distinct points instead of re-sampling the same blur."""
         if not self.ctx.can_check_panel:
             self.select(sx, sy, self.ctx.execution("place_select_wait_ms", 400))
             return None
 
-        attempts = max(1, self.ctx.execution("select_attempts", 5))
+        attempts = max(1, self.ctx.execution("select_attempts", 6))
         wait_ms = self.ctx.execution("select_panel_wait_ms", 900)
-        n = max(0, self.ctx.execution("select_nudge_px", 5))
-        # Centre first, then a tight cross around it.
-        offsets = [(0, 0), (0, -n), (0, n), (-n, 0), (n, 0)]
+        n = max(0, self.ctx.execution("select_nudge_px", 4))
+        lift = max(1, self.ctx.execution("select_lift_px", 8))
+        # Ground point first, then climb the unit's body; the last two lean
+        # slightly aside in case the model is drawn off-centre.
+        offsets = [(0, 0), (0, -lift), (0, -2 * lift), (0, -3 * lift),
+                   (-n, -lift), (n, -lift)]
         for i in range(attempts):
             self.ctx.check_stop()
             dx, dy = offsets[i % len(offsets)]
