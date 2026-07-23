@@ -12,6 +12,14 @@ class PlaceAction(StepAction):
     name = "place"
 
     def execute(self, step, rect, target: Target):
+        # Unit = none (slot 0): there is nothing to place, so this is just a
+        # click at the marker - a stage button, a popup, a spot to tap. Placing
+        # "nothing" has no other sensible meaning, so treat it as a bare click
+        # instead of skipping the step (the 'click' action is the same thing
+        # from the editor's WHAT list; this catches a place row set to none).
+        if not step.slot:
+            self.ctx.drv.click(target.sx, target.sy)
+            return
         # Resolve the card WITHOUT arming it. The loop arms immediately before
         # each placement click; arming here as well meant the loop's first
         # "is a unit already here?" click landed with a live card and placed
