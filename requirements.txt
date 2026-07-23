@@ -8,5 +8,8 @@ opencv-python>=4.9.0
 numpy>=1.26.0
 PyYAML>=6.0.1
 requests>=2.31.0
-pytesseract>=0.3.10
+# OCR: self-contained (ONNX models ship in the package). Replaced pytesseract,
+# which needed a separate Tesseract binary install users routinely missed.
+rapidocr>=3.0.0
+onnxruntime>=1.17.0
 Pillow>=10.2.0

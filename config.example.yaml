@@ -21,6 +21,11 @@ input:
   jitter_delay_pct: 0.15
   click_hold_ms: 45
   step_gap_ms: 180
+  # Nudge the cursor this many px and back, just before every click. Roblox
+  # tracks what's under the cursor from mouse-MOVE events, so a press with no
+  # movement behind it can hit a stale hover state and do nothing. 0 disables.
+  wiggle_px: 1
+  wiggle_delay_ms: 30
 
 vision:
   # How closely the live screen must match the stage reference image before
@@ -37,7 +42,9 @@ vision:
   ref_match_threshold: 0.65
   result_match_threshold: 0.85
   poll_interval_ms: 400
-  tesseract_cmd: ""   # path to tesseract.exe if it's not on PATH
+  # OCR needs no setup - the engine (RapidOCR) ships with its models inside
+  # the pip package. The old vision.tesseract_cmd setting is gone; a leftover
+  # copy in your config is harmless and ignored.
   # Match score for the post-match "(Click anywhere to close)" caption.
   # Measured on real captures: reward screens 0.84-1.00, gameplay 0.07-0.16,
   # so 0.70 sits in a wide gap. Raise only if something in-game false-triggers.
@@ -106,7 +113,7 @@ execution:
   # raise place_timeout_s for an expensive unit placed early. Each retry
   # re-arms the hotbar slot too, not just the click.
   place_timeout_s: 45
-  place_retry_interval_ms: 1200
+  place_retry_interval_ms: 500
   # How the placement is verified: watch the patch of map under the marker
   # until two consecutive reads agree (it stopped moving), then compare that
   # to how it looked before the click. Reads every place_settle_interval_ms,
@@ -117,6 +124,14 @@ execution:
   place_settle_reads: 6
   # Settle time after each click, for the unit panel to open (2.26).
   place_select_wait_ms: 400
+  # Selecting a placed unit: how many times to click it, and how long to wait
+  # for its panel after each click. Clicks on units land only intermittently
+  # (placements routinely need several attempts for the same reason), and the
+  # panel takes a variable moment to draw - so each attempt waits for the
+  # panel instead of checking once and immediately clicking again, which would
+  # toggle back off a panel that was still appearing.
+  select_attempts: 3
+  select_panel_wait_ms: 900
   # Somewhere harmless to park the mouse before judging a placement. An armed
   # card draws a ghost preview under the cursor, so the park point must be far
   # from BOTH the placement spot AND the unit-panel region the checks read
@@ -140,7 +155,6 @@ execution:
   # hitting it is what "maxed out or never affordable" looks like. Raise it
   # if a late-game level takes longer than two minutes to afford.
   upgrade_timeout_s: 120
-  upgrade_retry_interval_ms: 1200
   upgrade_confirm_wait_ms: 400
   # "Upgrade to max" stops on its own when a level fails to apply; this is
   # just the hard bound on how many levels it will ever buy for one unit.
@@ -155,6 +169,12 @@ execution:
   # coordinates that no longer mean anything. Set false to warn and run
   # anyway, e.g. while calibrating.
   abort_on_ref_mismatch: true
+  # How far each of R/G/B may drift from the profile's panel_probe_rgb and
+  # still count as "the unit panel is open". Loose enough to survive the
+  # panel's own fade-in and a translucent effect passing over it, tight
+  # enough that the map behind it never matches. Only used when the profile
+  # has panel_probe calibrated.
+  panel_probe_tolerance: 25
   # Stop the whole run after this many loops in a row that ended before a
   # single step ran. Without it, an infinite run with a broken camera retries
   # forever, doing nothing, all night.

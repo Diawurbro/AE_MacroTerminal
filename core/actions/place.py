@@ -79,30 +79,19 @@ class PlaceAction(StepAction):
     # ---------------- the retry loop ----------------
 
     def _unit_is_there(self, rect, target: Target, use_panel, roi, baseline) -> bool:
-        """Is a unit standing on this spot? NEVER places anything (no card is
-        armed when this runs).
-
-        Clicks the spot and reads the panel - clicking a unit opens/switches
-        to its panel, clicking empty ground deselects whatever was open. The
-        old version returned True WITHOUT clicking whenever any panel was
-        open, which turned one leftover panel (a failed deselect) into every
-        later placement being skipped (HANDOFF 2.38). The cost of clicking
-        first: a click on this spot's OWN already-selected unit toggles its
-        panel off and reads as empty - recovered with one more click, which
-        re-selects it. The recovery is UNCONDITIONAL on a False first read:
-        gating it on "was a panel showing before" trusted a read that can't
-        tell "closed" from "selected but mis-read", and that gap skipped
-        real units (HANDOFF 2.40). An empty spot pays one extra harmless
-        click per check."""
+        """Is a unit standing on this spot? NEVER places anything, and NEVER
+        clicks THIS spot's coordinates - a prior version clicked target.sx/sy
+        itself to "test/clear" whatever panel was showing, but that click can
+        land on a NEARBY already-placed unit instead of this exact spot
+        (hotbar markers can sit close together) and read THAT neighbor's
+        panel as evidence THIS spot succeeded - reporting a placement that
+        never happened (confirmed on a real run). A leftover panel from the
+        previous step is cleared once, safely, before the retry loop even
+        starts (see _place_until_verified) - by the time this runs, a plain
+        read of the panel is sufficient. Our own placement click, a few lines
+        down in the retry loop, is what triggers Roblox's own auto-select if
+        it actually landed."""
         if use_panel:
-            self.ctx.drv.click(target.sx, target.sy)
-            self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
-            self._park_cursor(rect)
-            if self.ctx.panel_shows_unit(rect):
-                return True
-            self.ctx.drv.click(target.sx, target.sy)
-            self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
-            self._park_cursor(rect)
             return self.ctx.panel_shows_unit(rect)
 
         self._park_cursor(rect)
@@ -139,7 +128,17 @@ class PlaceAction(StepAction):
         A verified placement still can't be told apart from a queued ghost,
         which is why phantom/pre-placement must be OFF in-game (HANDOFF
         section 7); with it off, an underfunded click is a clean no-op."""
-        use_panel = self.ctx.panel_empty is not None
+        use_panel = self.ctx.can_check_panel
+        if use_panel and self.ctx.panel_shows_unit(rect):
+            # A panel left open by the previous step would otherwise answer
+            # for this one - close it via deselect_point (curated specifically
+            # to be off any unit, see config.example.yaml), not by clicking
+            # this spot's own coordinates: doing that here used to risk
+            # landing on a NEARBY unit instead and reading its panel as this
+            # spot's answer (see _unit_is_there). Once per placement, not
+            # once per retry.
+            self.ctx.drv.click(*rect.to_screen(*self.ctx.execution("deselect_point", [0.62, 0.25])))
+            self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
         roi = self._roi(target)
         baseline = None if use_panel else self._settle(rect, roi)[0]
         timeout = self.ctx.execution("place_timeout_s", 45)

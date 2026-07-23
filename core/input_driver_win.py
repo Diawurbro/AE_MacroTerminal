@@ -90,6 +90,8 @@ class InputDriver:
         self.jitter_pct = i.get("jitter_delay_pct", 0.15)
         self.click_hold = i.get("click_hold_ms", 45)
         self.step_gap = i.get("step_gap_ms", 180)
+        self.wiggle_px = i.get("wiggle_px", 1)
+        self.wiggle_delay = i.get("wiggle_delay_ms", 30)
         self.humanize = True
 
     # ---------- timing ----------
@@ -124,10 +126,34 @@ class InputDriver:
             0, None)))
         _send(inp)
 
+    def _wiggle(self):
+        """Nudge the cursor a pixel and back, immediately before pressing.
+
+        Roblox updates what's under the cursor from mouse-MOVE events; a
+        press that arrives with no movement since the last one can land
+        against a stale hover state and do nothing. Moving onto the target
+        and pressing straight away is exactly that case, so every click pays
+        for one tiny move first. Lifted from the Cys macro, which wiggles
+        before literally every click for the same reason. Set input.wiggle_px
+        to 0 to disable.
+
+        Sent RELATIVE (MOUSEEVENTF_MOVE without _ABSOLUTE), so it needs no
+        knowledge of where the cursor currently is and lands back exactly
+        where it started."""
+        if not self.wiggle_px:
+            return
+        d = self.wiggle_px
+        _send(INPUT(type=INPUT_MOUSE, u=_INPUTUNION(
+            mi=MOUSEINPUT(d, d, 0, MOUSEEVENTF_MOVE, 0, None))))
+        _sleep_ms(self.wiggle_delay)
+        _send(INPUT(type=INPUT_MOUSE, u=_INPUTUNION(
+            mi=MOUSEINPUT(-d, -d, 0, MOUSEEVENTF_MOVE, 0, None))))
+
     def click(self, x: int = None, y: int = None, button: str = "left"):
         if x is not None:
             self.move(x, y)
             self.wait(35)
+        self._wiggle()
         down = MOUSEEVENTF_LEFTDOWN if button == "left" else MOUSEEVENTF_RIGHTDOWN
         up = MOUSEEVENTF_LEFTUP if button == "left" else MOUSEEVENTF_RIGHTUP
         _send(INPUT(type=INPUT_MOUSE, u=_INPUTUNION(mi=MOUSEINPUT(0, 0, 0, down, 0, None))))

@@ -43,47 +43,62 @@ class UnitPanel:
         roi = self.ctx.anchor("upgrade_level_roi")
         return self.ctx.cap.grab_roi(rect, roi) if roi else None
 
+    def _wait_for_panel(self, rect, timeout_ms: int) -> bool:
+        """Poll for the unit panel to appear, up to timeout_ms. Returns as
+        soon as it shows.
+
+        Polling rather than one read at a fixed delay is what makes the retry
+        loop below safe: a single check fired while the panel is still drawing
+        reads False, and the NEXT click would then toggle back off the panel
+        that was about to appear - so a perfectly good unit reads as empty
+        ground. Measured on a real run, the click itself is the unreliable
+        part (identical clicks on the same unit selected it only some of the
+        time), so the loop has to be able to tell "not selected yet" from
+        "not selected at all"."""
+        deadline = time.monotonic() + timeout_ms / 1000.0
+        while True:
+            if self.ctx.panel_shows_unit(rect):
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            self.ctx.check_stop()
+            self.ctx.drv.wait(80)
+
     def select_verified(self, rect, sx, sy) -> bool | None:
         """Click a spot and report whether a unit got selected. Returns None
-        when there's no empty-panel baseline to compare against - callers
-        treat that as "carry on regardless".
-
-        Compares against ctx.panel_empty (captured once per loop with nothing
-        selected) rather than against a snapshot taken a moment ago: a
-        relative baseline reads "changed" when a leftover panel CLOSES, i.e.
-        it reports a unit exactly when there isn't one (HANDOFF 2.30).
+        when there's no way to check the panel at all - callers treat that as
+        "carry on regardless".
 
         No deselect-first (HANDOFF 2.38): clicking unit B while A's panel is
         open SWITCHES the panel to B, and clicking empty ground deselects - so
         the click itself resolves a leftover panel either way, without
         depending on deselect_btn / deselect_point being calibrated (the
-        dependency behind the skipped-placement failures). The one trap is
-        clicking the SAME already-selected unit, which toggles its panel OFF
-        and reads as "no unit here" - recovered with one more click, which
-        re-selects it.
+        dependency behind the skipped-placement failures).
 
-        The recovery click is UNCONDITIONAL on a False first read - it used to
-        be gated on "was a panel showing before the click", but that read
-        can't tell "closed" from "still selected but mis-read" (a mis-aimed
-        deselect can collapse the panel without deselecting, and the region
-        then reads empty). That gap made the upgrade row right after a
-        placement toggle its own just-placed unit off and skip with "no unit"
-        (HANDOFF 2.40). An empty spot just pays one extra harmless click.
-
-        Waits place_select_wait_ms (400) for the panel to draw before reading
-        it, same as the placement check (place.py) - a slow panel draw used to
-        read as "no unit here" (bug 1.2)."""
-        settle = self.ctx.execution("place_select_wait_ms", 400)
-        if self.ctx.panel_empty is None:
-            self.select(sx, sy, settle)
+        Retries the click, waiting for the panel after each rather than
+        checking once at a fixed delay. Two things make that necessary, both
+        seen live: clicks on a unit land only intermittently (a placement
+        routinely needs 3-12 attempts for the same reason), and the panel
+        takes a variable moment to draw. The old version clicked exactly twice
+        with one immediate check between - so a first click that DID work but
+        hadn't finished drawing was read as failure, and the second click
+        toggled it straight back off, reporting "no unit at x, y" for a unit
+        that was plainly there. Clicking an already-open panel's own unit
+        toggles it shut, so each attempt re-opens what the previous one may
+        have closed; an empty spot simply never shows a panel and returns
+        False after the last attempt."""
+        if not self.ctx.can_check_panel:
+            self.select(sx, sy, self.ctx.execution("place_select_wait_ms", 400))
             return None
-        self.select(sx, sy, settle)
-        if self.ctx.panel_shows_unit(rect):
-            return True
-        # May have toggled OFF the very unit being selected - one more click
-        # re-selects it. An empty spot stays empty (correct False).
-        self.select(sx, sy, settle)
-        return self.ctx.panel_shows_unit(rect)
+
+        attempts = max(1, self.ctx.execution("select_attempts", 3))
+        wait_ms = self.ctx.execution("select_panel_wait_ms", 900)
+        for _ in range(attempts):
+            self.ctx.check_stop()
+            self.ctx.drv.click(sx, sy)
+            if self._wait_for_panel(rect, wait_ms):
+                return True
+        return False
 
     def deselect(self, rect):
         """Close the panel so it stops covering the map before the next
@@ -190,8 +205,8 @@ class UnitPanel:
         label_roi = self.ctx.anchor("priority_label_roi")
         target = step.priority
 
-        if not ocr.HAS_TESSERACT or not label_roi:
-            reason = ("Tesseract not installed" if not ocr.HAS_TESSERACT
+        if not ocr.READY or not label_roi:
+            reason = ("text reading (OCR) is unavailable" if not ocr.READY
                       else "priority_label_roi not calibrated")
             self.ctx.log(f"Step {step.id}: priority '{target}' — {reason}; "
                          "setting it once without checking.")
@@ -225,21 +240,31 @@ class UnitPanel:
 
     def _read_level(self, rect):
         """(N, M) from the panel's "Upgrade N/M" caption, or None when it
-        can't be read (no Tesseract, ROI uncalibrated, or a bad frame).
+        can't be read (no Tesseract, ROI uncalibrated, a bad frame, or a
+        reading that isn't physically possible).
 
         This is the DEFINITIVE "is it maxed?" signal. N>=M means the unit
         can't go higher - which the pixel-diff in upgrade_once cannot tell
         apart from "can't afford the next level yet" (both look like "nothing
         changed"), so without this an already-maxed unit gets clicked for the
         whole upgrade_timeout_s before the loop gives up (the "doesn't stop
-        after upgrade to max" report)."""
-        if not ocr.HAS_TESSERACT:
+        after upgrade to max" report).
+
+        M<=0 is impossible (a unit always has at least 1 max level) and is
+        the signature of a garbled read - confirmed live: an ability tooltip
+        overlapping this ROI ("26s" cooldown text) got OCR'd together with
+        the real "2/8" caption into "62/0", which satisfied N>=M and stopped
+        upgrading after only 2 of 8 levels. Rejecting M<=0 as unreadable
+        (falling back to the pixel-diff give-up in upgrade_once, same as no
+        Tesseract at all) is cheap insurance against any other overlay doing
+        the same thing - a real "maxed" reading always has M>=1."""
+        if not ocr.READY:
             return None
         roi = self.ctx.anchor("upgrade_level_roi")
         if not roi:
             return None
         n, m = ocr.read_fraction(self.ctx.cap.grab_roi(rect, roi))
-        if n is None or m is None:
+        if n is None or m is None or m <= 0 or n < 0:
             return None
         return n, m
 
@@ -247,15 +272,26 @@ class UnitPanel:
         """Buy exactly ONE level: click Upgrade until the panel's level readout
         CHANGES - that change is the only reliable "a level was bought" signal.
 
-        A readout that doesn't change is either maxed or not-yet-affordable, and
-        those need opposite handling, so ONLY on a no-change is the N/M caption
-        read (OCR): N>=M means maxed - stop now; N<M means "can't afford yet" -
-        keep clicking on a slow interval until income arrives (the user's ask).
+        Spams the click back-to-back (no affordability wait between attempts,
+        the user's ask) - only paced by upgrade_confirm_wait_ms, which exists
+        to let the panel actually redraw before the next read, not to wait out
+        cash. A readout that doesn't change is either maxed or not-yet-
+        affordable; only on a no-change is the N/M caption read (OCR) to tell
+        those apart: N>=M means maxed - stop now; N<M means keep spamming.
 
         Reading OCR only here, never to pre-empt a click, is what keeps a MISREAD
         max from stopping an upgrade early: a level that can actually buy changes
         the readout and is counted before OCR is ever looked at - so "5/8"
         misread as "5/5" no longer maxes a unit at level 5 (the reported bug).
+
+        Bails immediately if the panel CLOSES mid-loop. Without that check the
+        readout stops changing for a third reason the two above can't be told
+        apart from - the panel simply isn't there any more, so the Upgrade
+        keypress goes nowhere - and the loop spends the full upgrade_timeout_s
+        (2 minutes) pressing a key into the void before giving up. Seen on a
+        real run: "Step 5: upgrade to max" sat there for 90s+ with the panel
+        visibly shut. Only checked when the panel probe is calibrated, since
+        the fallback baseline can't answer this reliably.
 
         Falls back to a single unverified click when upgrade_level_roi isn't
         calibrated - there is nothing to watch, and one click is what the old
@@ -267,22 +303,26 @@ class UnitPanel:
             return True
 
         timeout = self.ctx.execution("upgrade_timeout_s", 120)
-        interval = self.ctx.execution("upgrade_retry_interval_ms", 1200)
         confirm = self.ctx.execution("upgrade_confirm_wait_ms", 400)
         deadline = time.monotonic() + timeout
+        can_probe = self.ctx.can_check_panel
         while True:
             self.ctx.check_stop()
             self.action(rect, "upgrade")
             self.ctx.drv.wait(confirm)
             if vcap.region_changed(before, self.level_shot(rect)):
                 return True   # a level was bought
-            # No change: maxed, or can't afford the next level yet?
+            # No change: maxed, can't afford yet, or the panel went away?
+            if can_probe and not self.ctx.panel_shows_unit(rect):
+                self.ctx.log(f"Step {step.id}: the unit panel closed mid-upgrade "
+                             "— stopping this upgrade instead of pressing into "
+                             "nothing.")
+                return False
             lvl = self._read_level(rect)
             if lvl and lvl[0] >= lvl[1]:
                 return False   # maxed - stop now instead of waiting out the timeout
             if time.monotonic() >= deadline:
                 return False
-            self.ctx.drv.wait(interval)
 
     def _open_panel(self, rect, sx, sy, step) -> bool:
         """Select the unit and refuse to work on empty ground. Shared by the

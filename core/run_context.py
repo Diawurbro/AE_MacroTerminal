@@ -78,10 +78,61 @@ class RunContext:
             return None
         return self.cap.grab_roi(rect, roi)
 
+    def probe_color(self, rect, point, radius: float = 0.004):
+        """Mean (r, g, b) of a small patch centred on a normalized point, or
+        None if it can't be read. Averaged rather than single-pixel so one
+        stray antialiased pixel can't decide anything."""
+        x, y = point
+        roi = [max(0.0, x - radius), max(0.0, y - radius),
+               min(1.0, x + radius), min(1.0, y + radius)]
+        patch = self.cap.grab_roi(rect, roi)
+        if patch is None or patch.size == 0:
+            return None
+        b, g, r = patch.reshape(-1, 3).mean(axis=0)   # capture is BGR
+        return float(r), float(g), float(b)
+
+    @property
+    def can_check_panel(self) -> bool:
+        """True when panel_shows_unit() has something to go on at all -
+        either the colour probe (preferred) or the per-loop empty-panel
+        baseline. Callers use this to choose between the panel check and
+        their weaker fallback, so it has to cover BOTH mechanisms: gating on
+        the baseline alone would silently ignore a profile that only has the
+        probe calibrated."""
+        if self.anchor("panel_probe") and self.anchor("panel_probe_rgb"):
+            return True
+        return self.panel_empty is not None
+
     def panel_shows_unit(self, rect) -> bool:
-        """Is a unit selected right now? False when there's no baseline to
-        compare against, so an uncalibrated profile falls back to the map
-        check instead of guessing."""
+        """Is a unit selected right now?
+
+        Primary check is a COLOUR PROBE: one small patch at a fixed spot on
+        the unit panel (panel_probe) compared against the colour that spot
+        shows while the panel is open (panel_probe_rgb). The panel's own
+        controls are big flat blocks of saturated colour that nothing on the
+        map matches, so this is a direct "is the panel there" reading.
+
+        It replaces diffing the level readout against a per-loop empty-panel
+        baseline, which was indirect and fragile in both directions: an
+        overlay drifting across the readout (an ability tooltip, a floating
+        damage number) read as "a unit is selected" when none was, and a
+        baseline captured a frame early read as "no unit" when one was
+        plainly there - the reported "no unit at x, y - skipping" on a unit
+        that had just been placed successfully. The reference macro this is
+        modelled on (Cys) probes a single panel pixel for exactly this
+        reason.
+
+        Falls back to the old baseline diff when panel_probe isn't calibrated,
+        so profiles saved before this existed keep working unchanged."""
+        probe = self.anchor("panel_probe")
+        want = self.anchor("panel_probe_rgb")
+        if probe and want:
+            got = self.probe_color(rect, probe)
+            if got is None:
+                return False
+            tol = self.execution("panel_probe_tolerance", 60)
+            return all(abs(a - b) <= tol for a, b in zip(got, want))
+
         if self.panel_empty is None:
             return False
         cur = self.grab_anchor(rect, "upgrade_level_roi")

@@ -39,6 +39,8 @@ class InputDriver:
         self.jitter_pct = i.get("jitter_delay_pct", 0.15)
         self.click_hold = i.get("click_hold_ms", 45)
         self.step_gap = i.get("step_gap_ms", 180)
+        self.wiggle_px = i.get("wiggle_px", 1)
+        self.wiggle_delay = i.get("wiggle_delay_ms", 30)
         self.humanize = True
         self._pos = self._current_pos()
 
@@ -69,10 +71,29 @@ class InputDriver:
             y += random.randint(-self.jitter_px, self.jitter_px)
         self._post_mouse(kCGEventMouseMoved, (x, y))
 
+    def _wiggle(self):
+        """Nudge the cursor a pixel and back, immediately before pressing.
+
+        Roblox updates what's under the cursor from mouse-MOVE events; a
+        press that arrives with no movement since the last one can land
+        against a stale hover state and do nothing. Moving onto the target
+        and pressing straight away is exactly that case, so every click pays
+        for one tiny move first. Lifted from the Cys macro, which wiggles
+        before literally every click for the same reason. Set input.wiggle_px
+        to 0 to disable."""
+        if not self.wiggle_px:
+            return
+        x, y = self._pos
+        d = self.wiggle_px
+        self._post_mouse(kCGEventMouseMoved, (x + d, y + d))
+        _sleep_ms(self.wiggle_delay)
+        self._post_mouse(kCGEventMouseMoved, (x, y))
+
     def click(self, x: int = None, y: int = None, button: str = "left"):
         if x is not None:
             self.move(x, y)
             self.wait(35)
+        self._wiggle()
         cg_button = kCGMouseButtonLeft if button == "left" else kCGMouseButtonRight
         down = kCGEventLeftMouseDown if button == "left" else kCGEventRightMouseDown
         up = kCGEventLeftMouseUp if button == "left" else kCGEventRightMouseUp

@@ -1,13 +1,24 @@
-"""OCR for the cash/wave HUD readouts (Phase 3).
+"""OCR for the HUD readouts (cash, wave) and the unit panel's labels.
 
-HUD digits have dark outlines that break raw OCR, so the ROI is thresholded
-to black/white first. Measured against a real capture, both readouts are
-light-on-dark (white wave digits, gold cash digits), but _normalize still
-flips whichever polarity it gets so a restyled HUD can't break the read.
+Backed by RapidOCR (ONNX models shipped inside the pip package) rather than
+Tesseract. That swap is the point of this module's design: Tesseract is a
+SEPARATE system install, and "the user didn't install the binary" was the
+single most common way OCR silently did nothing - the pytesseract wrapper
+imports fine on its own, so every read just returned empty forever and
+upgrade-to-max never detected "maxed" (see git history for that bug).
+RapidOCR has no external dependency at all: `pip install rapidocr
+onnxruntime` is the whole setup, on every platform.
 
-Two readers, deliberately: read_int joins every digit group it finds,
-read_leading_int takes only the leftmost. Which one a caller wants depends
-on the region - see their docstrings.
+It also reads these HUD strings better. Tesseract needed a character
+whitelist to cope, and a whitelist that keeps the slash for the "N/M"
+readouts (it returns "N/M" as one token, so a digits-only whitelist merged
+"0/8" into "08"). RapidOCR returns "Upgrade 0/3" verbatim, so the readers
+below are plain regex over real text.
+
+Recognition runs with detection DISABLED (use_det=False): every caller
+passes an already-cropped, tight, single-line ROI, so the detector has
+nothing useful to do and returns nothing at all on crops this small - the
+whole image IS the text line.
 """
 
 import re
@@ -16,237 +27,131 @@ import cv2
 import numpy as np
 
 try:
-    import pytesseract
-    HAS_TESSERACT = True
+    from rapidocr import RapidOCR
+    HAS_RAPIDOCR = True
 except ImportError:
-    HAS_TESSERACT = False
+    HAS_RAPIDOCR = False
 
-_WHITELIST = "-c tessedit_char_whitelist=0123456789"
-# Slash KEPT in the whitelist for the "N/M" readouts (wave, upgrade level).
-# Tesseract returns "N/M" as a single token, so with a digits-only whitelist
-# the slash is stripped and N,M concatenate into one number ("0/8" -> "08") -
-# any reader that must SEPARATE the two has to keep the slash and split on it.
-_SLASH_WHITELIST = "-c tessedit_char_whitelist=0123456789/"
-# psm 7 = one text line, 8 = one word, 13 = raw line (no layout heuristics).
-# A lone HUD number reads best on 7/8; 13 is the fallback for odd spacing.
-_PSMS = (7, 8, 13)
-_CONFIDENT = 80.0   # stop early once a read is at least this confident
+#: True once the OCR engine has actually loaded and can run. Callers on hot
+#: paths (upgrade max-detection, priority reads) must check this rather than
+#: assuming the import succeeded - a missing/broken model would otherwise
+#: fail silently inside the broad except in _read_text and read as "no text",
+#: which upstream can't tell apart from "the region is genuinely empty".
+READY = False
 
+_engine = None
 
-def configure(tesseract_cmd: str | None):
-    if HAS_TESSERACT and tesseract_cmd:
-        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+#: The ROI is upscaled this much before recognition. These HUD crops are tiny
+#: (~20px tall) and the recognizer is trained on larger text; scaling up first
+#: is what the reference macro does too, and it measurably improves reads.
+_SCALE = 4
 
 
-def tesseract_ready(tesseract_cmd: str | None = None) -> bool:
-    """True only if the Tesseract ENGINE actually runs. HAS_TESSERACT just
-    means the pytesseract wrapper imported - the engine is a separate install
-    (the #1 thing users miss), so the readiness check must probe the binary,
-    not the import. Returns False on any failure rather than raising."""
-    if not HAS_TESSERACT:
-        return False
-    configure(tesseract_cmd)
+def _load_engine():
+    """Build the RapidOCR engine once, lazily. Costs ~1s (ONNX model load),
+    so it happens on the first read rather than at import - the dashboard
+    starts up without paying for it, and a run that never reads OCR never
+    pays for it at all."""
+    global _engine, READY
+    if _engine is not None:
+        return _engine
+    if not HAS_RAPIDOCR:
+        READY = False
+        return None
     try:
-        pytesseract.get_tesseract_version()
-        return True
+        _engine = RapidOCR()
+        READY = True
     except Exception:
-        return False
+        _engine = None
+        READY = False
+    return _engine
 
 
-def _normalize(bw: np.ndarray) -> np.ndarray:
-    """Tesseract wants dark text on a light background with a quiet border.
-    Flip the image if it's mostly dark (so digits are dark-on-light either
-    way), then pad with white so glyphs aren't touching the edge."""
-    if float(bw.mean()) < 127:
-        bw = cv2.bitwise_not(bw)
-    return cv2.copyMakeBorder(bw, 12, 12, 12, 12, cv2.BORDER_CONSTANT, value=255)
+def configure(_legacy_tesseract_cmd: str | None = None):
+    """Warm the engine and set READY. The argument is the old
+    vision.tesseract_cmd config value - accepted and ignored so an existing
+    config.yaml keeps loading, since RapidOCR needs no binary path."""
+    _load_engine()
 
 
-def _binarizations(gray: np.ndarray):
-    """Two normalized candidates: Otsu (clean, high-contrast HUD) and adaptive
-    (survives a gradient / busy background behind the number)."""
-    _, otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    yield _normalize(otsu)
+def engine_ready() -> bool:
+    """True only if the OCR engine actually loads and runs. Probes (and warms)
+    on first call; cheap afterwards."""
+    _load_engine()
+    return READY
+
+
+def _read_text(img: np.ndarray) -> str | None:
+    """Raw recognized text for an already-cropped single-line ROI, or None.
+
+    Upscaled first (see _SCALE) and run with detection/classification off -
+    the crop IS the line, so there is no layout to detect and no orientation
+    to classify."""
+    if img is None or img.size == 0:
+        return None
+    engine = _load_engine()
+    if engine is None:
+        return None
     try:
-        adap = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                     cv2.THRESH_BINARY, 31, 5)
-        yield _normalize(adap)
-    except cv2.error:
-        return
-
-
-def _read_candidate(bw: np.ndarray, psm: int):
-    """(groups, mean_confidence) for one binary image + psm, or None.
-    Confidence-scored via image_to_data so a longer-but-garbage read no longer
-    beats a short clean one (the old 'longest string wins' failure).
-
-    `groups` stays a LIST of separate left-to-right digit runs rather than one
-    pre-joined string, because the two HUD readouts need opposite handling -
-    see read_int vs read_leading_int. Sorted by x because image_to_data's
-    reading order isn't guaranteed to be left-to-right."""
-    config = f"--psm {psm} {_WHITELIST}"
-    try:
-        data = pytesseract.image_to_data(
-            bw, config=config, output_type=pytesseract.Output.DICT)
+        big = cv2.resize(img, None, fx=_SCALE, fy=_SCALE,
+                         interpolation=cv2.INTER_CUBIC)
+        result = engine(big, use_det=False, use_cls=False)
     except Exception:
         return None
-    found, confs = [], []
-    lefts = data.get("left", [])
-    for i, (txt, conf) in enumerate(zip(data.get("text", []), data.get("conf", []))):
-        t = re.sub(r"[^0-9]", "", txt or "")
-        if not t:
-            continue
-        found.append((lefts[i] if i < len(lefts) else 0, t))
-        try:
-            c = float(conf)
-        except (TypeError, ValueError):
-            c = -1.0
-        if c >= 0:
-            confs.append(c)
-    if not found:
+    if result is None or not getattr(result, "txts", None):
         return None
-    groups = [t for _, t in sorted(found, key=lambda p: p[0])]
-    return groups, (sum(confs) / len(confs) if confs else 0.0)
-
-
-def _scan(img: np.ndarray) -> list[str] | None:
-    """Highest-confidence read of the ROI, as separate digit groups."""
-    if not HAS_TESSERACT or img is None or img.size == 0:
-        return None
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-
-    best, best_conf = None, -1.0
-    for bw in _binarizations(gray):
-        for psm in _PSMS:
-            res = _read_candidate(bw, psm)
-            if res is None:
-                continue
-            groups, conf = res
-            better = conf > best_conf or (
-                conf == best_conf
-                and (best is None or len("".join(groups)) > len("".join(best))))
-            if better:
-                best, best_conf = groups, conf
-            # The common case (clean HUD number) hits this on the first try,
-            # so this stays ~1 tesseract call instead of 6 unless it's unsure.
-            if best_conf >= _CONFIDENT:
-                return best
-    return best
+    return " ".join(t for t in result.txts if t).strip() or None
 
 
 def read_int(img: np.ndarray) -> int | None:
-    """The whole ROI as one integer - digit groups are JOINED, so a cash value
-    drawn with a thousands separator ("1,050") still reads as 1050. Only use
-    this on a region holding exactly one number."""
-    groups = _scan(img)
-    return int("".join(groups)) if groups else None
-
-
-def _read_slashed(img: np.ndarray) -> str | None:
-    """Recognize a digits-and-slash readout as a RAW string, slash kept
-    (e.g. "3/15", "0/8"). The digit-only _scan strips the slash and merges
-    N,M into one number, so the two slash readers below - which must tell N
-    from M - go through this instead. Not confidence-scored like _scan; it
-    takes the first binarization/psm that yields any digit, which is enough
-    for these small fixed HUD readouts."""
-    if not HAS_TESSERACT or img is None or img.size == 0:
+    """The whole ROI as one integer, with separators and stray non-digits
+    dropped - a cash value drawn as "1,050" or "¥1,050" reads as 1050. Only
+    use this on a region holding exactly one number."""
+    text = _read_text(img)
+    if not text:
         return None
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-    for bw in _binarizations(gray):
-        for psm in _PSMS:
-            try:
-                raw = pytesseract.image_to_string(
-                    bw, config=f"--psm {psm} {_SLASH_WHITELIST}").strip()
-            except Exception:
-                continue
-            if any(ch.isdigit() for ch in raw):
-                return raw
-    return None
+    digits = re.sub(r"[^0-9]", "", text)
+    return int(digits) if digits else None
 
 
 def read_leading_int(img: np.ndarray) -> int | None:
-    """Only the LEFTMOST number in the ROI. The wave HUD reads "<current> /
-    <total>" ("3 / 15"); Tesseract returns that as one token that a digits-
-    only read merges into 315, so every `wave >= N` precondition passes on
-    the first poll and the whole run desynchronizes silently - the exact
-    failure the preconditions exist to prevent (HANDOFF 2.6). Reading with
-    the slash kept and taking the first digit run gives the current wave."""
-    raw = _read_slashed(img)
-    if not raw:
+    """Only the LEFTMOST number in the ROI. The wave HUD reads
+    "<current> / <total>" ("3 / 15"); joining those digits the way read_int
+    does gives 315, so every `wave >= N` precondition passes on the first
+    poll and the whole run desynchronizes silently - the exact failure the
+    preconditions exist to prevent (HANDOFF 2.6)."""
+    text = _read_text(img)
+    if not text:
         return None
-    m = re.search(r"\d+", raw)
+    m = re.search(r"\d+", text)
     return int(m.group()) if m else None
 
 
 def read_fraction(img: np.ndarray) -> tuple[int | None, int | None]:
     """(current, max) from an "N/M" readout, e.g. the unit panel's
-    "Upgrade 0/8".
+    "Upgrade 0/3".
 
-    Reads with the slash KEPT and splits on it (_read_slashed): Tesseract
-    returns "N/M" as a single token, so a digits-only read merges it into one
-    number and the two values can't be recovered. The ROI usually also holds
-    a text label ("Upgrade"), but that's letters and the slash whitelist drops
-    it; if more than one "d/d" pair survives, the LAST wins - the label
-    precedes the numbers, so a stray pair can only appear to their left."""
-    raw = _read_slashed(img)
-    if not raw:
+    The ROI usually also holds a text label ("Upgrade"); that's fine here
+    because the regex only takes digit/digit pairs. If more than one pair
+    survives, the LAST wins - the label precedes the numbers, so a stray pair
+    can only appear to their left."""
+    text = _read_text(img)
+    if not text:
         return None, None
-    pairs = re.findall(r"(\d+)\s*/\s*(\d+)", raw)
+    pairs = re.findall(r"(\d+)\s*/\s*(\d+)", text)
     if not pairs:
         return None, None
     n, m = pairs[-1]
     return int(n), int(m)
 
 
-_LETTERS = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-_WORD_PSMS = (8, 7)   # 8 = single word (the common case), 7 = single line fallback
-
-
-def _read_word_candidate(bw: np.ndarray, psm: int):
-    config = f"--psm {psm} {_LETTERS}"
-    try:
-        data = pytesseract.image_to_data(
-            bw, config=config, output_type=pytesseract.Output.DICT)
-    except Exception:
-        return None
-    letters, confs = [], []
-    for txt, conf in zip(data.get("text", []), data.get("conf", [])):
-        t = re.sub(r"[^A-Za-z]", "", txt or "")
-        if not t:
-            continue
-        letters.append(t)
-        try:
-            c = float(conf)
-        except (TypeError, ValueError):
-            c = -1.0
-        if c >= 0:
-            confs.append(c)
-    if not letters:
-        return None
-    return "".join(letters), (sum(confs) / len(confs) if confs else 0.0)
-
-
 def read_word(img: np.ndarray) -> str | None:
-    """Best-effort short word/phrase read - letters only, no digit whitelist.
-    Used for the priority button's current-selection label ('None', 'First',
-    ...) - see read_int's docstring pattern, but for text instead of digits.
-    Same binarization + confidence-scored search as the digit readers."""
-    if not HAS_TESSERACT or img is None or img.size == 0:
+    """Best-effort short word read - used for the priority button's
+    current-selection label ('None', 'First', ...). Strips anything that
+    isn't a letter so a stray glyph from the button's border can't turn a
+    clean 'First' into a non-match."""
+    text = _read_text(img)
+    if not text:
         return None
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
-
-    best, best_conf = None, -1.0
-    for bw in _binarizations(gray):
-        for psm in _WORD_PSMS:
-            res = _read_word_candidate(bw, psm)
-            if res is None:
-                continue
-            word, conf = res
-            if conf > best_conf:
-                best, best_conf = word, conf
-            if best_conf >= _CONFIDENT:
-                return best
-    return best
+    letters = re.sub(r"[^A-Za-z]", "", text)
+    return letters or None

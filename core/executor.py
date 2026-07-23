@@ -85,10 +85,12 @@ class Executor(QThread):
         self.recorder = RunRecorder(self.ctx, StatsDB(self.stats_path),
                                     self.results_dir, on_result=self.result.emit)
 
-        ocr.configure(self.cfg.get("vision", {}).get("tesseract_cmd"))
-        if not ocr.HAS_TESSERACT:
-            self.log.emit("Tesseract isn't installed — cash/wave waits won't "
-                          "work. Install it to enable them.")
+        # Warm the OCR engine on the worker thread, before any step runs -
+        # the first load costs ~1s and would otherwise land mid-placement.
+        if not ocr.engine_ready():
+            self.log.emit("Text reading (OCR) is unavailable — cash/wave waits "
+                          "and upgrade-to-max detection won't work. Reinstall "
+                          "dependencies to enable them.")
 
     def run(self):
         self._build()

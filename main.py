@@ -484,9 +484,8 @@ class App:
             return None, "Attach the Roblox window first."
         if not HAS_VISION:
             return None, "opencv/mss not installed."
-        ocr.configure(self.cfg.get("vision", {}).get("tesseract_cmd"))
-        if not ocr.HAS_TESSERACT:
-            return None, "Tesseract not installed - install it, then Re-check."
+        if not ocr.engine_ready():
+            return None, "Text reading (OCR) is unavailable - reinstall dependencies, then Re-check."
         self.win.focus()  # the ROI is captured from screen coords behind us
         reader = getattr(ocr, self._OCR_TEST_READERS.get(name, "read_int"))
         try:
@@ -547,10 +546,7 @@ class App:
             "7. On the 'Steps' tab, press '+ Add step' for each unit, click the "
             "image where it should go, then pick its Unit number and what to do "
             "(Place / Upgrade to N / Upgrade to max). Click 'Save'.\n\n"
-            "8. (Optional) Install Tesseract-OCR so cash/wave waits work: "
-            "https://github.com/UB-Mannheim/tesseract/wiki - if it's not on "
-            "PATH, put its path in config.yaml under vision.tesseract_cmd.\n\n"
-            "9. Back on the dashboard, click 'Re-check'. Fix any red items, then "
+            "8. Back on the dashboard, click 'Re-check'. Fix any red items, then "
             "press Start (F9). Press F12 for an emergency stop.")
 
     def _anchors_calibrated(self) -> bool:
@@ -642,11 +638,13 @@ class App:
                            "past the end-of-match screens without them."))
 
         from core import ocr
-        if ocr.tesseract_ready(self.cfg.get("vision", {}).get("tesseract_cmd")):
-            checks.append(("Tesseract OCR", "ok", "Ready."))
+        if ocr.engine_ready():
+            checks.append(("Text reading (OCR)", "ok", "Ready."))
         else:
-            checks.append(("Tesseract OCR", "warn",
-                           "Not installed — cash/wave waits won't work (timed waits still do)."))
+            checks.append(("Text reading (OCR)", "warn",
+                           "Unavailable — cash/wave waits and upgrade-to-max "
+                           "detection won't work (timed waits still do). "
+                           "Reinstall dependencies to fix."))
 
         return checks
 
