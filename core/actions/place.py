@@ -16,15 +16,13 @@ class PlaceAction(StepAction):
         # "is a unit already here?" click landed with a live card and placed
         # one - one extra unit per step, every step (HANDOFF 2.29).
         if self.hotbar.position(step.slot) is None:
-            self.ctx.log(f"#{step.id} place skipped - hotbar slot {step.slot} "
-                         "has no position.")
+            self.ctx.log(f"Step {step.id}: skipped — hotbar slot {step.slot} "
+                         "isn't in your loadout.")
             return
-        # Start from nothing selected. Everything below reads "a unit is
-        # selected" as "a unit is standing on THIS spot", so a panel left open
-        # by an earlier step - belonging to some other unit - would answer for
-        # it and skip the placement entirely (HANDOFF 2.30).
-        if self.ctx.panel_shows_unit(rect):
-            self.panel.deselect(rect)
+        # No deselect-first for a leftover panel (HANDOFF 2.38): the check
+        # click in _unit_is_there resolves it by itself - clicking an empty
+        # spot deselects, clicking a unit switches the panel to it - without
+        # depending on deselect_btn being calibrated.
         if not self._place_until_verified(step, rect, target):
             return
         if step.priority != "none" or step.upgrade_mode != "off":
@@ -81,14 +79,25 @@ class PlaceAction(StepAction):
     # ---------------- the retry loop ----------------
 
     def _unit_is_there(self, rect, target: Target, use_panel, roi, baseline) -> bool:
-        """Is a unit standing on this spot? NEVER places anything.
+        """Is a unit standing on this spot? NEVER places anything (no card is
+        armed when this runs).
 
-        Reads the panel BEFORE clicking, because the game selects a unit it
-        has just placed: on that path the panel is already open, and clicking
-        the unit again would toggle the selection back off and hide the very
-        evidence being looked for (HANDOFF 2.29). Only if nothing is selected
-        does it click once to try to select whatever is there."""
+        Clicks the spot and reads the panel - clicking a unit opens/switches
+        to its panel, clicking empty ground deselects whatever was open. The
+        old version returned True WITHOUT clicking whenever any panel was
+        open, which turned one leftover panel (a failed deselect) into every
+        later placement being skipped (HANDOFF 2.38). The cost of clicking
+        first: a click on this spot's OWN already-selected unit toggles its
+        panel off and reads as empty - recovered with one more click, which
+        re-selects it. The recovery is UNCONDITIONAL on a False first read:
+        gating it on "was a panel showing before" trusted a read that can't
+        tell "closed" from "selected but mis-read", and that gap skipped
+        real units (HANDOFF 2.40). An empty spot pays one extra harmless
+        click per check."""
         if use_panel:
+            self.ctx.drv.click(target.sx, target.sy)
+            self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
+            self._park_cursor(rect)
             if self.ctx.panel_shows_unit(rect):
                 return True
             self.ctx.drv.click(target.sx, target.sy)
@@ -143,7 +152,7 @@ class PlaceAction(StepAction):
             self.ctx.check_stop()
             if self._unit_is_there(rect, target, use_panel, roi, baseline):
                 if placed > 1:
-                    self.ctx.log(f"#{step.id} placed after {placed} attempts.")
+                    self.ctx.log(f"Step {step.id}: unit placed (after {placed} tries).")
                 return True
             # `placed` guard: always make at least one real attempt, however
             # tight the timeout is set.
@@ -158,19 +167,30 @@ class PlaceAction(StepAction):
             self.ctx.drv.click(target.sx, target.sy)
             self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
             placed += 1
+            # Fast path: placing auto-selects the new unit, so the panel
+            # lighting up right after OUR placement click is the verification.
+            # Safe to trust: the check that preceded this click confirmed
+            # nothing was selected, so a lit panel can only be the unit just
+            # placed. Skips the next check's select-click and the toggle-off
+            # recovery it would need (HANDOFF 2.38).
+            if use_panel:
+                self._park_cursor(rect)
+                if self.ctx.panel_shows_unit(rect):
+                    if placed > 1:
+                        self.ctx.log(f"Step {step.id}: unit placed (after {placed} tries).")
+                    return True
 
         if use_panel:
-            why = "most likely never affordable"
+            why = "you probably never had enough cash"
         elif self._busy:
-            why = ("the spot never stopped moving, so nothing could be "
-                   "confirmed - check the marker isn't on the enemy path")
+            why = ("the spot kept changing, so it couldn't be confirmed — "
+                   "check the marker isn't on the enemy path")
         else:
-            why = ("most likely never affordable (verified by watching the "
-                   "map; calibrate upgrade_level_roi for the reliable check)")
-        self.ctx.log(f"#{step.id} place FAILED: {placed} attempt(s) over "
-                     f"{timeout}s and no unit ever appeared there - {why}. "
-                     "Continuing without it; later steps for this spot will "
-                     "find nothing.")
+            why = ("you probably never had enough cash (checked by watching "
+                   "the map — calibrate the unit-level readout for a more "
+                   "reliable check)")
+        self.ctx.log(f"Step {step.id}: couldn't place a unit after {placed} "
+                     f"tries in {timeout}s — {why}. Continuing without it.")
         return False
 
     def _after_place(self, step, rect, target: Target):

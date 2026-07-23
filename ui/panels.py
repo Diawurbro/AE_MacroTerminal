@@ -13,194 +13,204 @@ import html
 import time
 
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
-from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QSpinBox, QLineEdit, QGroupBox, QGridLayout, QCheckBox,
+    QTextEdit, QPlainTextEdit, QSpinBox, QLineEdit, QGroupBox, QGridLayout, QCheckBox,
     QScrollArea, QFrame, QProgressBar, QSizePolicy, QComboBox,
     QAbstractSpinBox, QAbstractScrollArea, QApplication,
 )
 
 # --- palette -----------------------------------------------------------
-# One place to retune the theme. Names describe the role, not the colour, so
-# swapping the hue later doesn't leave lying variable names behind.
-ACCENT = "#FF2FB0"          # magenta: focus, active tab, progress, hover edge
-ACCENT_SOFT = "#FF8BD3"     # readable magenta for text (panel titles)
-ACCENT_DEEP = "#4A1035"     # magenta at text-background strength (selection)
+# Nocturne design system (see design_handoff README): dark blue-grey ground,
+# muted blurple accent, low-chroma status colours. Names describe the role, not
+# the colour, so the role-based references below the QSS keep working.
+ACCENT = "#9184D9"          # blurple: focus rings, progress, primary button edge
+ACCENT_SOFT = "#D2CEFD"     # accent-300: section labels, winrate, readable accent
+ACCENT_DEEP = "#39356B"     # blurple at selection-background strength
 
-BG = "#101014"              # page / bar background
-SURFACE = "#191920"         # panel card
-RAISED = "#23232C"          # buttons
-SUNKEN = "#0B0B0F"          # inputs, log, scrolling wells
-BORDER = "#2B2B35"
-BORDER_HI = "#3C3C49"
+BG = "#161826"              # page / sunken wells / log body
+SURFACE = "#232532"         # panel cards
+RAISED = "#2B2D3B"          # pills, combo popup (buttons are outlined, not filled)
+SUNKEN = "#12131E"          # inputs
+BORDER = "#33353F"          # card-internal borders (~divider as a solid)
+BORDER_HI = "#45474F"
 
-TEXT = "#E9E9F0"
-DIM = "#9C9CAA"             # secondary text
-FAINT = "#6C6C7A"           # tertiary text (timestamps, captions)
+TEXT = "#E9E9ED"
+DIM = "#8E9098"             # secondary text (neutral-500)
+FAINT = "#74767E"           # tertiary text - captions, timestamps (neutral-600)
 
-OK = "#3FCF8E"
-WARN = "#E8B23F"
-BAD = "#F06565"
-OK_BG, WARN_BG, BAD_BG = "#122520", "#2A2416", "#2A1619"
+OK = "#8FBF9A"
+WARN = "#D9B878"
+BAD = "#D98C8C"
+OK_BG, WARN_BG, BAD_BG = "#22332B", "#33301F", "#33232A"
+
+# Neutral ramp, interpolated between the design system's 100 and 900 endpoints.
+# Only the rungs the mock actually uses are named.
+N300 = "#C0C2CB"            # IDLE pill text
+N400 = "#A7A9B1"            # checkbox label
+N700 = "#5B5D65"            # off/idle status dot
+N800 = "#42444B"            # IDLE pill background, scrollbar thumb
+N900 = "#292B31"            # progress-bar track
+DIVIDER = "rgba(233,233,237,0.16)"
 
 DASHBOARD_QSS = f"""
-QWidget {{ background: {BG}; color: {TEXT}; }}
+QWidget {{ background: {BG}; color: {TEXT}; font-size: 13px; }}
 
-/* The bar sits flush on the screen edge; the accent hairline is what makes it
-   read as a docked tool strip rather than a window that lost its frame. */
-QWidget#dashRoot {{ border-top: 2px solid {ACCENT}; }}
+/* The frameless window ground; a touch darker than the cards so the {SURFACE}
+   cards read as raised surfaces (Nocturne). */
+QWidget#dashRoot, QWidget#logRoot {{ background: #10111C; }}
+/* The column / log hosts are transparent, so the ground above shows through the
+   gaps between cards (not the generic QWidget background). */
+QWidget#colHost, QWidget#logHost {{ background: transparent; }}
 
-QLabel {{ background: transparent; color: {TEXT}; font-size: 11px; }}
-QLabel#appTitle {{ color: #ffffff; font-size: 15px; font-weight: 700; }}
-QLabel#value {{ color: #ffffff; font-size: 14px; font-weight: 600; }}
-QLabel#muted {{ color: {DIM}; font-size: 11px; }}
-QLabel#caption {{ color: {FAINT}; font-size: 10px; }}
-QLabel#colHead {{ color: {FAINT}; font-size: 10px; font-weight: 600; }}
-QLabel#metric {{ color: {TEXT}; font-size: 12px; font-weight: 600; }}
-QLabel#metricAccent {{ color: {ACCENT_SOFT}; font-size: 12px; font-weight: 600; }}
-QLabel#sectionHead {{ color: {ACCENT_SOFT}; font-size: 11px; font-weight: 600; }}
-QLabel#checkRow {{ padding: 2px 1px 3px 1px; border-bottom: 1px solid #1E1E26; }}
+QLabel {{ background: transparent; color: {TEXT}; font-size: 13px; }}
+QLabel#appTitle {{ color: {TEXT}; font-size: 15px; font-weight: 500; }}
+QLabel#value {{ color: {TEXT}; font-size: 14px; font-weight: 500; }}
+QLabel#muted {{ color: {DIM}; font-size: 13px; }}
+QLabel#caption {{ color: {FAINT}; font-size: 11px; }}
+QLabel#colHead {{ color: {FAINT}; font-size: 10px; font-weight: 500; }}
+QLabel#metric {{ color: {TEXT}; font-size: 13px; }}
+QLabel#metricAccent {{ color: {ACCENT_SOFT}; font-size: 13px; }}
+/* Section labels: uppercase accent-300. text-transform isn't a Qt QSS property,
+   so the text is upper-cased in code; this only carries colour/size/tracking. */
+QLabel#sectionHead {{ color: {ACCENT_SOFT}; font-size: 12px; font-weight: 500; }}
+QLabel#checkRow {{ padding: 7px 1px; border-bottom: 1px solid {DIVIDER}; }}
 
 /* Pills carry run state / readiness at a glance. Level is a dynamic property,
    so set it then re-polish the widget (see _repolish). */
 QLabel#statePill {{
-    background: {RAISED}; color: {DIM}; border: 1px solid {BORDER};
-    border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 700;
+    background: {N800}; color: {N300}; border: none;
+    border-radius: 5px; padding: 4px 10px; font-size: 12px; font-weight: 500;
 }}
-QLabel#statePill[level="run"] {{ background: {OK}; color: #08150F; border-color: {OK}; }}
-QLabel#statePill[level="bad"] {{ background: {BAD}; color: #21080A; border-color: {BAD}; }}
-QLabel#summary {{ border: 1px solid {BORDER}; border-radius: 4px;
-    padding: 3px 6px; font-size: 11px; color: {DIM}; }}
-QLabel#summary[level="ok"] {{ color: {OK}; background: {OK_BG}; border-color: #1E4736; }}
-QLabel#summary[level="warn"] {{ color: {WARN}; background: {WARN_BG}; border-color: #4A3D18; }}
-QLabel#summary[level="bad"] {{ color: {BAD}; background: {BAD_BG}; border-color: #4C2226; }}
+QLabel#statePill[level="run"] {{ background: {OK_BG}; color: {OK}; }}
+QLabel#statePill[level="bad"] {{ background: {BAD_BG}; color: {BAD}; }}
+QLabel#summary {{ border: none; border-radius: 6px;
+    padding: 5px 10px; font-size: 12px; color: {DIM}; background: {N800}; }}
+QLabel#summary[level="ok"] {{ color: {OK}; background: {OK_BG}; }}
+QLabel#summary[level="warn"] {{ color: {WARN}; background: {WARN_BG}; }}
+QLabel#summary[level="bad"] {{ color: #F0B8B8; background: {BAD_BG}; }}
 
-QFrame#sep {{ background: {BORDER}; border: none; }}
-/* One calibration anchor (stage editor): name + Set button, value underneath.
-   The rule is here so the whole theme stays in one file. */
-QWidget#anchorRow {{ border-bottom: 1px solid #23232C; }}
+QFrame#sep {{ background: {DIVIDER}; border: none; }}
+QWidget#anchorRow {{ border-bottom: 1px solid {DIVIDER}; }}
+QWidget#checkWell {{ background: transparent; }}
 
+/* Cards. No visible border - the surface tone against the darker ground is the
+   edge (Nocturne). The title is the uppercase section label, top-left. */
 QGroupBox {{
-    background: {SURFACE}; border: 1px solid {BORDER}; border-radius: 7px;
-    margin-top: 12px; padding-top: 4px;
-    color: {ACCENT_SOFT}; font-size: 11px; font-weight: 600;
+    background: {SURFACE}; border: none; border-radius: 8px;
+    margin-top: 12px; padding: 6px 4px 4px 4px;
+    color: {ACCENT_SOFT}; font-size: 12px; font-weight: 500;
 }}
 QGroupBox::title {{
     subcontrol-origin: margin; subcontrol-position: top left;
-    left: 9px; padding: 0 4px; background: transparent;
+    left: 18px; top: 2px; padding: 0; background: transparent;
 }}
 
+/* Buttons are OUTLINED, not filled: transparent ground, 1px border. Secondary
+   uses the neutral divider; primary the accent; danger a muted red; ghost none. */
 QPushButton {{
-    background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER_HI};
-    border-radius: 5px; padding: 4px 9px; font-size: 11px; text-align: center;
+    background: transparent; color: {TEXT}; border: 1px solid {BORDER};
+    border-radius: 8px; padding: 7px 12px; font-size: 13px; text-align: center;
 }}
-QPushButton:hover {{ background: #2C2C37; border-color: {ACCENT}; }}
-QPushButton:pressed {{ background: #17171D; }}
-QPushButton:disabled {{ background: #17171C; color: #55555F; border-color: #262630; }}
-QPushButton#primary {{
-    background: #1B7A5A; color: #EAFFF6; border-color: #2AA57C; font-weight: 600;
-}}
-QPushButton#primary:hover {{ background: #229269; border-color: #3FD09C; }}
-QPushButton#primary:pressed {{ background: #145C44; }}
-QPushButton#primary:disabled {{ background: #17322A; color: #5F8D7B; border-color: #23483C; }}
-QPushButton#danger {{ background: #2A171B; color: #F2A0A0; border-color: #8E3A3A; }}
-QPushButton#danger:hover {{ background: #432026; border-color: {BAD}; }}
-QPushButton#danger:disabled {{ background: #1A1418; color: #6B4A4E; border-color: #3A2429; }}
-QPushButton#ghost {{
-    background: transparent; color: {DIM}; border: 1px solid {BORDER};
-    padding: 3px 7px; font-size: 10px;
-}}
-QPushButton#ghost:hover {{ color: {TEXT}; border-color: {BORDER_HI}; background: {RAISED}; }}
+QPushButton:hover {{ background: rgba(255,255,255,0.045); border-color: {BORDER_HI}; }}
+QPushButton:pressed {{ background: rgba(255,255,255,0.02); }}
+QPushButton:disabled {{ color: #5A5C64; border-color: #2A2C36; }}
+QPushButton#primary {{ color: {ACCENT_SOFT}; border: 1px solid {ACCENT}; font-weight: 500; }}
+QPushButton#primary:hover {{ background: rgba(145,132,217,0.13); border-color: {ACCENT}; }}
+QPushButton#primary:pressed {{ background: rgba(145,132,217,0.06); }}
+QPushButton#primary:disabled {{ color: #63608A; border-color: #3B3960; }}
+QPushButton#danger {{ color: {BAD}; border: 1px solid #7A4A4A; }}
+QPushButton#danger:hover {{ background: rgba(217,140,140,0.13); border-color: {BAD}; }}
+QPushButton#danger:disabled {{ color: #6E5458; border-color: #4A3538; }}
+QPushButton#ghost {{ background: transparent; color: {DIM}; border: none; padding: 4px 8px; font-size: 12px; }}
+QPushButton#ghost:hover {{ color: {TEXT}; }}
 
 QLineEdit, QSpinBox, QComboBox {{
     background: {SUNKEN}; color: {TEXT}; border: 1px solid {BORDER};
-    border-radius: 4px; padding: 4px 5px; font-size: 11px;
-    selection-background-color: {ACCENT_DEEP}; selection-color: #ffffff;
+    border-radius: 8px; padding: 6px 8px; font-size: 13px;
+    selection-background-color: {ACCENT_DEEP}; selection-color: {TEXT};
 }}
 QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border-color: {ACCENT}; }}
 QLineEdit:disabled, QSpinBox:disabled, QComboBox:disabled {{
-    background: #131318; color: #55555F; border-color: #232330;
+    background: #14151F; color: #5A5C64; border-color: #262832;
 }}
-/* The spin box up/down buttons are deliberately NOT styled: wheel-changing a
-   value is filtered out (_NoWheelFilter), so those buttons are the only mouse
-   way left to nudge a number, and any ::up-button rule here makes Qt drop the
-   native arrow glyph unless an ::up-arrow image is supplied (a CSS-triangle
-   ::up-arrow renders as a solid block, verified). Native arrows it is. */
+/* Spin box arrows deliberately unstyled (see _NoWheelFilter): styling ::up-button
+   makes Qt drop the native glyph unless an ::up-arrow image is supplied. */
 
 QComboBox QAbstractItemView {{
-    background: #1B1B22; color: {TEXT}; border: 1px solid {BORDER_HI};
-    selection-background-color: {ACCENT_DEEP}; selection-color: #ffffff;
-    outline: none;
+    background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER_HI};
+    border-radius: 8px; selection-background-color: {ACCENT_DEEP};
+    selection-color: {TEXT}; outline: none; padding: 2px;
 }}
 
-QTextEdit {{
-    background: {SUNKEN}; color: #C8C8D2; border: 1px solid {BORDER};
-    border-radius: 5px; font-family: Consolas, "Cascadia Mono", monospace;
-    font-size: 11px; selection-background-color: {ACCENT_DEEP};
+/* Log body: the sunken well inside the log card (color-bg), 4px radius. */
+QTextEdit, QPlainTextEdit {{
+    background: {BG}; color: #C8C8D0; border: 1px solid {DIVIDER};
+    border-radius: 4px; font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 13px; selection-background-color: {ACCENT_DEEP};
 }}
 
 QProgressBar {{
-    background: {SUNKEN}; border: 1px solid {BORDER}; border-radius: 3px;
-    text-align: center; color: transparent;
+    background: {N900}; border: none; border-radius: 2px;
+    text-align: center; color: transparent; max-height: 5px;
 }}
 QProgressBar::chunk {{ background: {ACCENT}; border-radius: 2px; }}
 
 QTabWidget::pane {{
-    border: 1px solid {BORDER}; border-radius: 6px; background: {SURFACE}; top: -1px;
+    border: 1px solid {BORDER}; border-radius: 8px; background: {SURFACE}; top: -1px;
 }}
 QTabBar::tab {{
-    background: transparent; color: {DIM}; padding: 6px 13px;
-    border-bottom: 2px solid transparent; margin-right: 2px; font-size: 11px;
+    background: transparent; color: {DIM}; padding: 7px 14px;
+    border-bottom: 2px solid transparent; margin-right: 2px; font-size: 13px;
 }}
 QTabBar::tab:hover {{ color: {TEXT}; }}
 QTabBar::tab:selected {{
-    color: #ffffff; background: {SURFACE}; border-bottom: 2px solid {ACCENT};
+    color: {TEXT}; background: {SURFACE}; border-bottom: 2px solid {ACCENT};
 }}
 
-QSplitter::handle {{ background: {BORDER}; }}
+QSplitter::handle {{ background: {DIVIDER}; }}
 QSplitter::handle:hover {{ background: {ACCENT}; }}
 QSplitter::handle:horizontal {{ width: 5px; }}
 QSplitter::handle:vertical {{ height: 5px; }}
 
 QTableWidget {{
-    background: {SUNKEN}; alternate-background-color: #121218; color: {TEXT};
-    gridline-color: #23232C; border: 1px solid {BORDER}; border-radius: 5px;
-    font-size: 11px;
-    /* Dimmer than the text-selection magenta: rows carry their own per-action
-       foreground colour, which an item view keeps even when selected. */
-    selection-background-color: #2E1424;
+    background: {BG}; alternate-background-color: #1B1D2A; color: {TEXT};
+    gridline-color: {DIVIDER}; border: 1px solid {BORDER}; border-radius: 8px;
+    font-size: 13px;
+    selection-background-color: {ACCENT_DEEP};
 }}
+/* Steps table header (editor): transparent with just a bottom divider, per the
+   mock - the uppercase label text is set in code (Qt QSS has no text-transform). */
 QHeaderView::section {{
-    background: #1C1C24; color: {DIM}; border: none;
-    border-right: 1px solid #23232C; border-bottom: 1px solid #23232C;
-    padding: 4px 6px; font-size: 10px; font-weight: 600;
+    background: transparent; color: {FAINT}; border: none;
+    border-bottom: 1px solid {DIVIDER};
+    padding: 6px 8px; font-size: 11px; font-weight: 500;
 }}
 
 QScrollArea {{ border: none; }}
 QScrollBar:vertical {{ background: transparent; width: 9px; margin: 0; }}
-QScrollBar::handle:vertical {{ background: #32323E; border-radius: 4px; min-height: 22px; }}
-QScrollBar::handle:vertical:hover {{ background: #45454F; }}
+QScrollBar::handle:vertical {{ background: {N800}; border-radius: 4px; min-height: 22px; }}
+QScrollBar::handle:vertical:hover {{ background: {BORDER_HI}; }}
 QScrollBar:horizontal {{ background: transparent; height: 9px; margin: 0; }}
-QScrollBar::handle:horizontal {{ background: #32323E; border-radius: 4px; min-width: 22px; }}
-QScrollBar::handle:horizontal:hover {{ background: #45454F; }}
+QScrollBar::handle:horizontal {{ background: {N800}; border-radius: 4px; min-width: 22px; }}
+QScrollBar::handle:horizontal:hover {{ background: {BORDER_HI}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
-QCheckBox {{ color: {TEXT}; font-size: 11px; background: transparent; spacing: 6px; }}
+QCheckBox {{ color: {N400}; font-size: 13px; background: transparent; spacing: 8px; }}
 QCheckBox::indicator {{
-    width: 14px; height: 14px; border: 1px solid {BORDER_HI};
-    border-radius: 3px; background: {SUNKEN};
+    width: 15px; height: 15px; border: 1px solid {BORDER_HI};
+    border-radius: 4px; background: {SUNKEN};
 }}
 QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
 QCheckBox::indicator:checked {{ background: {ACCENT}; border-color: {ACCENT}; }}
 
 QToolTip {{
-    background: #1B1B22; color: {TEXT}; border: 1px solid {BORDER_HI};
-    padding: 4px 6px;
+    background: {RAISED}; color: {TEXT}; border: 1px solid {BORDER_HI};
+    padding: 5px 7px;
 }}
 QMessageBox {{ background: {SURFACE}; }}
-QMessageBox QLabel {{ color: {TEXT}; font-size: 12px; }}
+QMessageBox QLabel {{ color: {TEXT}; font-size: 13px; }}
 """
 
 
@@ -267,7 +277,15 @@ def _dot(color: str) -> str:
 class LogPanel(QGroupBox):
     """Run log. The executor emits plain sentences with no severity prefix, so
     lines are classified by wording - colour is what makes a 200-line log
-    scannable at 11px in a 250px-tall bar."""
+    scannable at 11px in a 250px-tall bar.
+
+    Backed by QPlainTextEdit with a capped block count, not QTextEdit: a
+    farming run emits many lines per loop and the log used to grow without
+    bound, so QTextEdit re-laid-out an ever-larger document on every insert and
+    the whole app got slower with each logged action. The cap makes each append
+    O(1) - oldest lines are dropped once MAX_LINES is reached."""
+
+    MAX_LINES = 600
 
     # Four levels, same colour language as the readiness checklist: red is
     # "this run is broken", amber is "degraded but continuing".
@@ -282,7 +300,7 @@ class LogPanel(QGroupBox):
              "teleporting", "waiting", "exiting", "reference match")
 
     def __init__(self):
-        super().__init__("Current Process")
+        super().__init__("CURRENT PROCESS")
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 4, 8, 7)
         v.setSpacing(4)
@@ -299,9 +317,13 @@ class LogPanel(QGroupBox):
         head.addWidget(self.btn_clear)
         v.addLayout(head)
 
-        self.log = QTextEdit()
+        self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
-        self.log.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.log.setLineWrapMode(QPlainTextEdit.WidgetWidth)
+        # Ring-buffer the document so a long session can't grow it without
+        # bound - this is what keeps every append fast (see class docstring).
+        self.log.setMaximumBlockCount(self.MAX_LINES)
+        self.log.setUndoRedoEnabled(False)
         v.addWidget(self.log, 1)
 
     def _color_for(self, msg: str) -> str:
@@ -323,11 +345,9 @@ class LogPanel(QGroupBox):
         bar = self.log.verticalScrollBar()
         at_bottom = bar.value() >= bar.maximum() - 4
 
-        cur = self.log.textCursor()
-        cur.movePosition(QTextCursor.End)
-        if not self.log.document().isEmpty():
-            cur.insertBlock()
-        cur.insertHtml(
+        # appendHtml adds one block and the maximumBlockCount cap drops the
+        # oldest as needed - no manual cursor/trim bookkeeping.
+        self.log.appendHtml(
             f"<span style='color:{FAINT}'>{time.strftime('%H:%M:%S')}</span>&nbsp;"
             f"<span style='color:{color}'>{html.escape(msg)}</span>")
 
@@ -351,102 +371,102 @@ class SetupRunPanel(QGroupBox):
     profile_selected = Signal(str)      # user picked a name from the dropdown
 
     def __init__(self):
-        super().__init__("Setup && Run")
-        # Compact 3-column grid so the panel fits the short full-width bottom
-        # bar (the old tall vertical stack ran off the bottom of the screen).
-        # Reading order top to bottom: state -> setup -> options -> run.
-        g = QGridLayout(self)
-        g.setHorizontalSpacing(5)
-        # 9 rows have to fit in BAR_H minus the group title - the spacing is
-        # this tight on purpose; it leaves ~25px of headroom for a bigger UI
-        # font before anything clips.
-        g.setVerticalSpacing(3)
-        g.setContentsMargins(8, 2, 8, 5)
-        for c in range(3):
-            g.setColumnStretch(c, 1)
+        super().__init__("SETUP && RUN")
+        # Vertical stack for the wide right-dock control column (the old compact
+        # 3-column grid was for the short bottom bar). Reading order top to
+        # bottom: state -> setup -> options -> run.
+        v = QVBoxLayout(self)
+        v.setSpacing(10)
+        v.setContentsMargins(18, 8, 18, 16)
+
+        # Exit sits top-right, opposite the section label, as far from
+        # Start/Emergency stop as the card allows.
+        top = QHBoxLayout()
+        top.addStretch(1)
+        self.btn_exit = QPushButton("Exit")
+        self.btn_exit.setObjectName("ghost")
+        self.btn_exit.setToolTip("Quit TD Macro. Stops the macro first if it's running.")
+        self.btn_exit.clicked.connect(self.exit_requested.emit)
+        top.addWidget(self.btn_exit)
+        v.addLayout(top)
 
         self.lbl_attach = QLabel()
         self.lbl_attach.setTextFormat(Qt.RichText)
-        g.addWidget(self.lbl_attach, 0, 0, 1, 2)
-
-        # Exit sits in the top corner, as far from Start/Emergency stop as the
-        # panel allows - it used to have a row of its own, which the profile
-        # picker now needs (the bar cannot get any taller).
-        self.btn_exit = QPushButton("Exit")
-        self.btn_exit.setObjectName("ghost")
-        self.btn_exit.setToolTip("Quit TD Macro (stops a running macro first).")
-        self.btn_exit.clicked.connect(self.exit_requested.emit)
-        g.addWidget(self.btn_exit, 0, 2, Qt.AlignRight)
+        self.lbl_attach.setStyleSheet("font-size:14px;")
+        v.addWidget(self.lbl_attach)
 
         prof_row = QHBoxLayout()
-        prof_row.setSpacing(5)
+        prof_row.setSpacing(10)
         lbl_prof = QLabel("Profile")
         lbl_prof.setObjectName("muted")
         prof_row.addWidget(lbl_prof)
         self.cb_profile = QComboBox()
-        self.cb_profile.setToolTip("Pick one of your saved stage profiles.")
+        self.cb_profile.setToolTip("Choose a saved stage profile.")
         self.cb_profile.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.cb_profile.setMinimumHeight(38)
         self.cb_profile.activated.connect(self._on_profile_picked)
         prof_row.addWidget(self.cb_profile, 1)
         self.lbl_profile = QLabel()
         self.lbl_profile.setTextFormat(Qt.RichText)
         prof_row.addWidget(self.lbl_profile)
-        g.addLayout(prof_row, 2, 0, 1, 3)
+        v.addLayout(prof_row)
 
-        self.btn_attach = QPushButton("Attach + center window")
+        self.btn_attach = QPushButton("Attach game window")
+        self.btn_attach.setMinimumHeight(42)
         self.btn_attach.setToolTip(
-            "Find the Roblox window, resize its client area to 1280x720 and "
-            "center it in the space above this bar.")
+            "Find Roblox, resize it to 1280×720, and dock this dashboard "
+            "around it.")
         self.btn_attach.clicked.connect(self.attach_requested.emit)
-        g.addWidget(self.btn_attach, 3, 0, 1, 3)
+        v.addWidget(self.btn_attach)
 
+        row3 = QHBoxLayout()
+        row3.setSpacing(8)
         self.btn_camera = QPushButton("Test camera view")
         self.btn_camera.setToolTip(
-            "Runs the right-drag top-down sequence against the attached Roblox "
-            "window (zoom in, pitch down, zoom out - all hard clamps) so you can "
-            "preview it before capturing the reference image in the stage editor.")
+            "Preview the top-down camera the macro uses, so you can check it "
+            "before capturing a reference image.")
         self.btn_camera.clicked.connect(self.camera_test_requested.emit)
-        g.addWidget(self.btn_camera, 4, 0)
-
+        row3.addWidget(self.btn_camera, 1)
         self.btn_editor = QPushButton("Stage editor")
-        self.btn_editor.setToolTip("Open the stage editor window to build / edit steps.")
+        self.btn_editor.setToolTip("Open the stage editor to build or edit your steps.")
         self.btn_editor.clicked.connect(self.editor_requested.emit)
-        g.addWidget(self.btn_editor, 4, 1)
-
-        self.btn_load = QPushButton("Load from file")
-        self.btn_load.setToolTip("Browse for a profile (.json) that isn't in the "
-                                 "dropdown - e.g. one you saved elsewhere.")
+        row3.addWidget(self.btn_editor, 1)
+        self.btn_load = QPushButton("Load profile…")
+        self.btn_load.setToolTip("Open a saved profile from a file.")
         self.btn_load.clicked.connect(self.load_requested.emit)
-        g.addWidget(self.btn_load, 4, 2)
+        row3.addWidget(self.btn_load, 1)
+        v.addLayout(row3)
 
-        # Runs are always infinite - Stop / F12 is how one ends. The old
-        # "Loops" spinbox is gone: it defaulted to infinite anyway, and a
-        # farming macro that stops itself after N wins isn't a thing anyone
-        # asked for twice.
+        # Runs are always infinite - Stop / F12 is how one ends.
         self.btn_shot = QPushButton("Screenshot")
-        self.btn_shot.setToolTip("Save a PNG of the game client area.")
+        self.btn_shot.setToolTip("Save a screenshot of the game window.")
         self.btn_shot.clicked.connect(self.screenshot_requested.emit)
-        g.addWidget(self.btn_shot, 5, 0, 1, 3)
+        v.addWidget(self.btn_shot)
 
-        self.chk_start_game = QCheckBox("Press Start Game at run start")
+        self.chk_start_game = QCheckBox("Auto-press 'Start Game' each round")
         self.chk_start_game.setToolTip(
-            "Auto-click the in-game 'Start Game' button when a run begins.")
+            "Automatically press the in-game 'Start Game' button at the start of each round.")
         self.chk_start_game.toggled.connect(self.start_game_toggled.emit)
-        g.addWidget(self.chk_start_game, 6, 0, 1, 3)
+        v.addWidget(self.chk_start_game)
 
-        g.addWidget(hsep(), 7, 0, 1, 3)
+        v.addWidget(hsep())
 
+        run_row = QHBoxLayout()
+        run_row.setSpacing(10)
         self.btn_run = QPushButton("Start  (F9)")
         self.btn_run.setObjectName("primary")
+        self.btn_run.setMinimumHeight(44)
         self.btn_run.clicked.connect(self.run_requested.emit)
-        g.addWidget(self.btn_run, 8, 0, 1, 2)
+        run_row.addWidget(self.btn_run, 2)
 
         self.btn_stop = QPushButton("Stop  (F12)")
         self.btn_stop.setObjectName("danger")
-        self.btn_stop.setToolTip("Emergency stop - finishes the current step, then aborts.")
+        self.btn_stop.setMinimumHeight(44)
+        self.btn_stop.setToolTip("Emergency stop. Finishes the current step, then halts.")
         self.btn_stop.setEnabled(False)   # nothing to stop until a run starts
         self.btn_stop.clicked.connect(self.stop_requested.emit)
-        g.addWidget(self.btn_stop, 8, 2)
+        run_row.addWidget(self.btn_stop, 1)
+        v.addLayout(run_row)
 
         self._running = False
         self._cam_testing = False
@@ -503,11 +523,11 @@ class SetupRunPanel(QGroupBox):
 
     def set_attached(self, ok: bool, detail: str = ""):
         if ok:
-            text = f"attached <span style='color:{DIM}'>{html.escape(detail)}</span>"
+            text = f"connected <span style='color:{DIM}'>{html.escape(detail)}</span>"
             self.lbl_attach.setText(f"{_dot(OK)} Roblox {text}")
         else:
             self.lbl_attach.setText(f"{_dot(BAD)} Roblox "
-                                    f"<span style='color:{DIM}'>not attached</span>")
+                                    f"<span style='color:{DIM}'>not connected</span>")
 
     def set_profile(self, name: str, steps: int):
         # The name itself now lives in the dropdown, so this label only carries
@@ -544,7 +564,7 @@ class ReadinessPanel(QGroupBox):
     DOT = {"ok": OK, "warn": WARN, "bad": BAD}
 
     def __init__(self):
-        super().__init__("Readiness")
+        super().__init__("READINESS")
         self._v = QVBoxLayout(self)
         self._v.setSpacing(4)
         self._v.setContentsMargins(8, 3, 8, 7)
@@ -637,7 +657,7 @@ class StatsPanel(QGroupBox):
     _BAD_STATES = ("STOP", "ERROR", "ABORT", "FAIL")
 
     def __init__(self):
-        super().__init__("Statistics")
+        super().__init__("STATISTICS")
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 3, 8, 7)
         v.setSpacing(5)
@@ -743,7 +763,7 @@ class WebhookPanel(QGroupBox):
     webhook_test_requested = Signal(str)
 
     def __init__(self):
-        super().__init__("Webhooks")
+        super().__init__("WEBHOOKS")
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 3, 8, 7)
         v.setSpacing(4)

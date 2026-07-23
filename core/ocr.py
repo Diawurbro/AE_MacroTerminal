@@ -22,6 +22,11 @@ except ImportError:
     HAS_TESSERACT = False
 
 _WHITELIST = "-c tessedit_char_whitelist=0123456789"
+# Slash KEPT in the whitelist for the "N/M" readouts (wave, upgrade level).
+# Tesseract returns "N/M" as a single token, so with a digits-only whitelist
+# the slash is stripped and N,M concatenate into one number ("0/8" -> "08") -
+# any reader that must SEPARATE the two has to keep the slash and split on it.
+_SLASH_WHITELIST = "-c tessedit_char_whitelist=0123456789/"
 # psm 7 = one text line, 8 = one word, 13 = raw line (no layout heuristics).
 # A lone HUD number reads best on 7/8; 13 is the fallback for odd spacing.
 _PSMS = (7, 8, 13)
@@ -138,32 +143,61 @@ def read_int(img: np.ndarray) -> int | None:
     return int("".join(groups)) if groups else None
 
 
+def _read_slashed(img: np.ndarray) -> str | None:
+    """Recognize a digits-and-slash readout as a RAW string, slash kept
+    (e.g. "3/15", "0/8"). The digit-only _scan strips the slash and merges
+    N,M into one number, so the two slash readers below - which must tell N
+    from M - go through this instead. Not confidence-scored like _scan; it
+    takes the first binarization/psm that yields any digit, which is enough
+    for these small fixed HUD readouts."""
+    if not HAS_TESSERACT or img is None or img.size == 0:
+        return None
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.resize(gray, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+    for bw in _binarizations(gray):
+        for psm in _PSMS:
+            try:
+                raw = pytesseract.image_to_string(
+                    bw, config=f"--psm {psm} {_SLASH_WHITELIST}").strip()
+            except Exception:
+                continue
+            if any(ch.isdigit() for ch in raw):
+                return raw
+    return None
+
+
 def read_leading_int(img: np.ndarray) -> int | None:
     """Only the LEFTMOST number in the ROI. The wave HUD reads "<current> /
-    <total>" ("3 / 15"); joining those groups the way read_int does returns
-    315, so every `wave >= N` precondition passes on the first poll and the
-    whole run desynchronizes silently - the exact failure the preconditions
-    exist to prevent (HANDOFF 2.6)."""
-    groups = _scan(img)
-    return int(groups[0]) if groups else None
+    <total>" ("3 / 15"); Tesseract returns that as one token that a digits-
+    only read merges into 315, so every `wave >= N` precondition passes on
+    the first poll and the whole run desynchronizes silently - the exact
+    failure the preconditions exist to prevent (HANDOFF 2.6). Reading with
+    the slash kept and taking the first digit run gives the current wave."""
+    raw = _read_slashed(img)
+    if not raw:
+        return None
+    m = re.search(r"\d+", raw)
+    return int(m.group()) if m else None
 
 
 def read_fraction(img: np.ndarray) -> tuple[int | None, int | None]:
     """(current, max) from an "N/M" readout, e.g. the unit panel's
-    "Upgrade 0/8". The ROI usually also contains a text label sharing the
-    same line ("Upgrade") - the digit whitelist already excludes letters,
-    but a glyph can occasionally misread as a spurious digit, so this takes
-    the LAST TWO groups by x-position rather than the first two: reading
-    order is left-to-right and the label always comes before the numbers,
-    never after, so a stray group from the label can only push the count up,
-    not appear to the right of the real N/M."""
-    groups = _scan(img)
-    if not groups or len(groups) < 2:
+    "Upgrade 0/8".
+
+    Reads with the slash KEPT and splits on it (_read_slashed): Tesseract
+    returns "N/M" as a single token, so a digits-only read merges it into one
+    number and the two values can't be recovered. The ROI usually also holds
+    a text label ("Upgrade"), but that's letters and the slash whitelist drops
+    it; if more than one "d/d" pair survives, the LAST wins - the label
+    precedes the numbers, so a stray pair can only appear to their left."""
+    raw = _read_slashed(img)
+    if not raw:
         return None, None
-    try:
-        return int(groups[-2]), int(groups[-1])
-    except ValueError:
+    pairs = re.findall(r"(\d+)\s*/\s*(\d+)", raw)
+    if not pairs:
         return None, None
+    n, m = pairs[-1]
+    return int(n), int(m)
 
 
 _LETTERS = "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"

@@ -1,12 +1,12 @@
 {
-  "stage": "Masala",
-  "reference_image": "profiles\\Untitled_stage_ref.png",
+  "stage": "Stage2t",
+  "reference_image": "profiles\\Stage2t_ref.png",
   "ui_anchors": {
     "cash_roi": [
-      0.492,
-      0.805,
-      0.547,
-      0.842
+      0.474,
+      0.807,
+      0.552,
+      0.84
     ],
     "wave_roi": [
       0.425,
@@ -73,8 +73,8 @@
     {
       "id": 1,
       "action": "place",
-      "x": 0.499,
-      "y": 0.3858,
+      "x": 0.4806,
+      "y": 0.4423,
       "slot": 5,
       "times": 1,
       "target_step": null,
@@ -89,8 +89,8 @@
     {
       "id": 2,
       "action": "place",
-      "x": 0.5315,
-      "y": 0.399,
+      "x": 0.5072,
+      "y": 0.448,
       "slot": 5,
       "times": 1,
       "target_step": null,
@@ -105,8 +105,8 @@
     {
       "id": 3,
       "action": "place",
-      "x": 0.4887,
-      "y": 0.4488,
+      "x": 0.4711,
+      "y": 0.5917,
       "slot": 1,
       "times": 1,
       "target_step": null,
@@ -119,10 +119,26 @@
       "upgrade_mode": "off"
     },
     {
-      "id": 4,
+      "id": 5,
       "action": "upgrade",
-      "x": 0.489,
-      "y": 0.449,
+      "x": 0.481,
+      "y": 0.442,
+      "slot": 5,
+      "times": 1,
+      "target_step": null,
+      "wait": {
+        "type": "none",
+        "value": 0
+      },
+      "note": "",
+      "priority": "none",
+      "upgrade_mode": "max"
+    },
+    {
+      "id": 6,
+      "action": "upgrade",
+      "x": 0.471,
+      "y": 0.592,
       "slot": 1,
       "times": 1,
       "target_step": null,

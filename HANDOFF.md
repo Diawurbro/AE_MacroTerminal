@@ -1333,6 +1333,308 @@ actually fire).
 Both unverified against the live game - needs Tesseract installed for the max
 readout, and one supervised loop to confirm repeat fires on a real win and loss.
 
+### 2.32 The N/M readers never actually worked on a real Tesseract engine
+
+Tesseract got installed on the Windows machine (v5.4.0, UB-Mannheim) and the
+first real read exposed this: `read_fraction` and `read_leading_int` were only
+ever "verified" against a STUBBED engine that handed them pre-split digit
+groups (HANDOFF 2.18/2.12). Against the real engine they were broken, same root
+cause for both - Tesseract returns "N/M" as a SINGLE token, and with a
+digits-only whitelist the slash is stripped so N and M concatenate:
+
+- `read_fraction("Upgrade 0/8")` returned `(None, None)` - `_scan` gave one
+  group `"08"`, never the two it needed. So the 2.31 upgrade-to-max stop, which
+  depends on it, was dead: it would never see N>=M.
+- `read_leading_int("0 / 15")` returned `15`, not `0` - the exact wave-gate
+  desync 2.12 believed it had fixed. Any `wave >= N` with N<=total passes on
+  the first poll.
+
+Fix: a `_read_slashed()` helper reads with the slash KEPT in the whitelist and
+returns the raw "N/M" string; `read_fraction` regexes out the `(d)/(d)` pair
+(last one, so a label like "Upgrade" can't interfere) and `read_leading_int`
+takes the first digit run before the slash. `read_int` (cash) is unchanged - it
+joins groups and has no slash. Verified against rendered captions: read_fraction
+and read_leading_int now correct for 0/8, 3/8, 8/8, "0 / 15", "12 / 15", etc.
+
+Still to check live: `read_int` on a comma cash value ("2,003"). A synthetic
+Arial comma OCR'd as a "1" (-> 21003); the real HUD's comma showed up as a
+group GAP in the 2.12 captures (-> rejoins to 2003), but confirm with the
+Calibrate tab's "Test read cash" on the live HUD - an over-read cash would let
+an underfunded placement through.
+
+### 2.33 Camera set once per run, and the log no longer slows the app down
+
+Two user reports.
+
+- *"set view 1 time per stage join and not change after pressing start"* - the
+  camera was normalized+verified on EVERY loop, and re-running that flaky
+  sequence each round is what corrupted a good camera and then failed the
+  reference check ("mismatch screenshot"). Repeat Stage restarts the same stage
+  without moving the camera and nothing here moves the character, so the
+  top-down view set on entry holds. `Executor` now normalizes+verifies ONCE per
+  run and reuses it for every repeat, gated by `execution.normalize_camera_once`
+  (default true; false restores per-round normalize+verify). Gated on a
+  `_camera_set` flag rather than `loop_no == 1`, so a first attempt that aborts
+  on mismatch still retries next loop instead of skipping the camera forever.
+  Risk it trades for: if the camera ever drifts mid-session, nothing re-checks
+  it - units land at the map edge and the fix is to stop and Start again.
+- *"app runs slow after each click"* - `LogPanel` was a `QTextEdit` that grew
+  without bound. A farming run emits many lines per loop, and QTextEdit
+  re-lays-out its whole document on every insert, so each logged action got
+  slower than the last. Switched to `QPlainTextEdit` with
+  `setMaximumBlockCount(600)` (a ring buffer - O(1) append, oldest lines drop)
+  via `appendHtml`, keeping the per-line colour. Also fixed RELEASE_REVIEW 1.4
+  in passing: the GUI-thread Test camera / Screenshot / Test read handlers each
+  did `vcap.Capture()`, leaking an mss handle per click; they now share one
+  `App._shared_cap()` (the executor keeps its own on the worker thread - mss
+  handles are per-thread).
+
+### 2.34 L-shaped side-dock dashboard + Nocturne theme (branch: dashboard-side-dock)
+
+Implemented from `design_handoff_dashboard_side_dock` (README + a 1920x1080 HTML
+mock). Layout + visual redesign only - every panel class keeps its public methods
+and signals, so no run logic changed.
+
+- **Layout**: the bottom bar is replaced by a dock around the game. The game is
+  pinned TOP-LEFT (new `RobloxWindow.layout(pin=(x,y))`) instead of centered,
+  which frees the column to its right and the strip beneath it. It is ONE
+  full-screen frameless `MainWindow` with a **click-through mask** cutting a hole
+  where the game is (`setMask(screen − game rect)`), so the control column and
+  the log strip read as a single surface wrapping the game rather than two
+  separate windows. Two child hosts (`_column_host`, `_log_host`) hold the panels
+  (Setup & Run over [Readiness | Statistics+Webhooks]; log strip below). The hole
+  is unpainted + click-through, so Roblox shows through it, receives real and
+  synthetic clicks, and `mss` reads the true game pixels. `MainWindow.place(game,
+  screen)` positions the hosts and sets the mask; `main.py:_layout_docks` calls it
+  at startup (expected rect), on attach (game's OUTER window rect via new
+  `RobloxWindow.window_rect()`), and from the watchdog on move. `BAR_H` retired
+  (kept = 0 for import compatibility); `MARGIN/GAP/COL_W/GAME_W/GAME_H` drive
+  geometry.
+- **Theme**: `DASHBOARD_QSS` retuned to the Nocturne tokens (ground #10111C,
+  surface #232532, blurple accent #9184D9 / accent-300 #D2CEFD, low-chroma OK/
+  WARN/BAD, 8px card/input radius, 4px log well). Buttons are OUTLINED (transparent
+  ground, 1px border; primary=accent, danger=muted red, ghost=none). Section
+  labels are the QGroupBox titles, upper-cased in code (Qt QSS has no
+  text-transform). App font is Inter with a Segoe UI fallback (`setFamilies`).
+- **Known deviations from the mock** (Qt QSS limits / judgement calls): the two
+  dock windows keep their OS title bars (movable/closable - safer than frameless
+  for a live tool; flip to `Qt.FramelessWindowHint` for the exact look); no
+  Phosphor icon glyphs (icon font not bundled - status dots use the existing
+  HTML-entity bullets); no letter-spacing or box-shadow (unsupported in Qt QSS).
+  Inter falls back to Segoe UI unless Inter is installed.
+
+Kept on a branch so the working bottom-bar build stays on `main` until this is
+verified live (attach, confirm the docks frame the game with no overlap).
+
+### 2.35 Stage editor rethemed to Nocturne (Stage Editor.html)
+
+The editor already shared `DASHBOARD_QSS`, so this was colour/label polish to match
+the `Stage Editor.html` mock, no structure or behaviour change:
+- Marker colours are the mock's Nocturne set: placement `#9184D9` (accent),
+  upgrade `#D9A45C`, selected-ring `#D2CEFD`; calibration overlay cyan `#5CC2D9`;
+  canvas ground `#050507`. The legend picks these up automatically.
+- "Stage" label is muted (not a section head); "THIS RUN" and the table headers
+  (`# X Y UNIT WHAT TO DO`) are upper-cased in code (Qt QSS has no text-transform).
+- `QHeaderView::section` is now transparent with just a bottom divider (was a
+  filled block). The status line defaults to accent-300, level still overrides.
+- Editor window keeps its OS title bar (the mock draws a custom one) - it's a
+  user-moved floating window, so a draggable frame is more practical than
+  frameless; a deliberate, minor deviation.
+
+**Not done - the dashboard "Console + Current Process" split** from the updated
+README: the Console is specced as a separate raw executor trace (window-find
+results, coordinates, poll state), which is a NEW data stream, i.e. a behaviour
+change the "visual + layout only" constraint rules out. The only dashboard VISUAL
+mock is the single-log version, which the current build matches. Revisit if a real
+console stream is wanted.
+
+### 2.36 Two live-run bugs: upgrade-to-max stopping early, and round-2 select failing
+
+Both reported with screenshots from a real farming run.
+
+- **Upgrade-to-max stopped at 5 on a unit that goes to 8.** The panel read
+  "Upgrade 5/8" but the log said "maxed at 5/5" - OCR misread the max (8 -> 5),
+  and `upgrade_max`/`upgrade_times` had a top-of-loop `if N>=M: break` that took
+  the misread at face value. Fixed by making the level-CHANGE the primary "a
+  level was bought" signal (the pixel-diff already in `upgrade_once`) and reading
+  N/M ONLY on a no-change, inside `upgrade_once`, to tell maxed from can't-afford.
+  A buyable level changes the readout and is counted before OCR is ever consulted,
+  so a misread max can no longer stop early. The fast-stop at true max (2.31) is
+  kept: on no-change, N>=M returns immediately instead of waiting the timeout.
+  Verified with a sim: real-max 8 with OCR stuck reading max=5 now reaches 8;
+  a genuine 3/3 still stops at 3.
+- **Second loop couldn't find a unit the first loop placed fine** ("#6: no unit
+  at 0.471, 0.592"). Root cause chain: `deselect()`'s bare-ground fallback clicked
+  `cursor_park` `[0.02, 0.5]`, which is INSIDE the bottom-left unit panel
+  (~x 0.01-0.33, y 0.30-0.71), so it hit the open panel instead of the map and
+  never closed it ("the unit panel won't close" in the log). The stale panel then
+  poisoned the next step's selection on loop 2. Fixed with a separate
+  `execution.deselect_point` (default `[0.62, 0.25]`, clear of that panel) for the
+  fallback click. The user's `deselect_btn` is also mis-calibrated in that profile
+  - recalibrating it (Calibrate tab > "Unit panel close (X)") is the more reliable
+  fix and makes the fallback moot.
+
+### 2.37 A stuck panel skips every later placement; deselect hardened; camera-on-entry default
+
+Reported: *"the macro isn't even placing, sometimes it moves the cursor but does
+not click."* The log showed steps #2/#3 finishing in ~1s each with no "placed
+after N" line, right after a "unit panel won't close" warning.
+
+- **Diagnosis.** Step #1 placed a unit (panel auto-opens), then `deselect()`
+  failed to close it. Every later step's "is a unit already here?" check
+  (`panel_shows_unit`, the authoritative placement check per 2.26/2.30) then read
+  that ONE leftover panel as "yes", so `_place_until_verified` returned True
+  without ever arming the card or clicking - placements #2, #3 were skipped
+  silently. One stuck panel breaks the entire rest of the loop.
+- **Deselect hardened.** The bare-ground fallback now retries `deselect_point`
+  up to `execution.deselect_attempts` (3) times, checking after each - a
+  swallowed click or a frame of lag no longer leaves the panel stuck. The
+  warning now spells out the consequence (later placements get skipped) and the
+  fix (calibrate `deselect_btn`, or move `deselect_point` onto empty ground).
+  The two reliable fixes are still user-side: `deselect_btn` is mis-calibrated in
+  the reporting profile, and `deselect_point` must be over empty map.
+- **Camera-on-entry** was briefly defaulted to `normalize_camera_once: false`
+  (re-normalize every round) in response to "auto change camera view on enter the
+  stage" - but that **regressed Start Game**: with re-verify every round, a round
+  whose camera scored under `ref_match_threshold` hit the `abort_on_ref_mismatch`
+  path in `_run_once` and `record("abort"); return False` BEFORE
+  `press_start_game`, so Start stopped firing. **Reverted to the 2.33 default
+  `true`** (normalize + verify once on the first entry, reuse on repeats): the
+  camera still auto-normalizes on entry - "Test camera view" was never required -
+  and Start fires every round. `false` remains available for anyone who wants
+  per-round re-normalize and accepts that a mismatched round is skipped. The
+  camera is only ever touched on entry, before Start Game - never during a match.
+
+### 2.38 Keybinds are back for unit actions, and selection switches by clicking
+
+Two changes in one, both from live farming evidence, both user-requested. This
+PARTIALLY REVERSES 2.22 ("no keystrokes"), deliberately: the user reported the
+hotbar sometimes not responding to clicks - the card never arms, the placement
+stalls, the run delays and loses - and asked for keybinds. A keypress is atomic;
+it can't land a few px off a card or get eaten by an overlay. 2.22's reasons no
+longer bind: the "t" teleport collision died with teleport_key, and the camera
+stays a right-drag (its Shift-Lock argument only ever applied to the camera).
+
+- **`game.use_unit_keys` (default true) + `game.unit_keys`** are reintroduced:
+  `Hotbar.select()` taps the slot's number key (1-9, bounded by slot_count;
+  geometry/`position()` kept for the click fallback and the slot-validity
+  check), and `UnitPanel.action()` taps [T] Upgrade / [X] Sell / [R] Priority
+  (badges measured in 2.14). `use_unit_keys: false` restores clicking. An
+  unknown key logs and falls back to the click. Nothing else sends keys; the
+  macro's own F9/F12 hotkeys are unrelated.
+- **Selection is click-to-switch, no deselect-first** (user observation:
+  clicking unit B while A's panel is open switches the panel straight to B;
+  clicking empty ground deselects). `select_verified` and place's
+  `_unit_is_there` no longer deselect or blind-trust an open panel - they click
+  the target spot and read. This removes the deselect_btn/deselect_point
+  dependency from the placement-verification critical path, which was the root
+  of the skipped-placement failures (2.37). The one trap - clicking the SAME
+  already-selected unit toggles its panel OFF - is recovered with one more
+  click (re-selects), attempted only when a panel was open going in.
+- **Placement fast path**: the check preceding a placement click confirms
+  nothing is selected, so the panel lighting up right after OUR click can only
+  be the just-placed unit (auto-select) - verified on the spot, no extra
+  select-click, no toggle dance.
+- `deselect()` itself is unchanged and still used for end-of-step map
+  clearance (the panel covers bottom-left map). Calibrating deselect_btn is
+  still recommended, but nothing critical depends on it anymore.
+- Verified with a stubbed driver + simulated game (12 cases): key taps vs
+  clicks on both paths, out-of-range slots refused with no input, toggle-off
+  recovery, leftover-panel + empty spot correctly False with deselect_btn
+  UNCALIBRATED, and the place loop placing exactly 1 unit on auto-select,
+  non-auto-select, and leftover-panel-at-start games (the old skip bug).
+
+### 2.39 Repeat Stage RESETS the camera - repeats now verify, and normalize on mismatch
+
+Round 2 placed nothing while claiming otherwise: #1/#2 "verified" in ~2s, then
+every upgrade step found `no unit at ...`, the game sat at wave 3 with 33
+enemies, 3 health and ¥2,837 unspent. Root cause: 2.33's `normalize_camera_once`
+reuse branch skipped the reference VERIFY along with the normalize (its log line
+was all it did), and its core assumption - "Repeat Stage keeps the same camera" -
+is **wrong**: restarting the stage respawns the character, and Roblox resets the
+camera on respawn (2.3 documents this). Round 2 therefore ran on the default
+angled camera with zero checking; at that angle every profile coordinate hits a
+different world position (2.28), so the placement clicks landed on wrong/invalid
+spots, and the panel checks false-positived (see cursor_park below).
+
+- **`StageSetup.verify_or_renormalize(rect)`** - repeats VERIFY every round
+  (cheap, instant, not flaky) and re-run the normalize sequence only when the
+  reference stopped matching. Polls the score up to
+  `execution.repeat_ref_wait_s` (8s) first, because right after Repeat the
+  stage can still be fading in and a premature "mismatch" would normalize
+  against a loading screen. On real mismatch it calls `normalize_and_verify`
+  (existing retry/abort semantics); an unfixable camera aborts the loop BEFORE
+  Start Game, which is correct - placing against a wrong camera is worse.
+  The executor's entry/repeat branches now share one abort path. 2.33's
+  "the view set on entry holds" claim is superseded.
+- **`cursor_park` moved `[0.02, 0.5]` -> `[0.85, 0.10]`.** The old point sat
+  INSIDE the bottom-left unit panel area; with a still-armed card, the ghost
+  preview follows the parked cursor and can bleed into `upgrade_level_roi`,
+  faking "a unit is selected" during placement verification - one source of the
+  round-2 false positives. Top-right is hover-only UI, far from every read
+  region.
+- Verified with a stubbed StageSetup (5 cases): camera held -> no normalize;
+  fade-in recovering within the wait -> no normalize; reset camera ->
+  normalize once and proceed; unfixable -> False (loop aborts pre-Start);
+  no reference -> no-op.
+
+### 2.40 Upgrade-after-place toggle skip (recovery now unconditional) + match-wait CPU
+
+Reported: `#3 placed after 7 attempts` then, same second, `#4: no unit at
+0.471, 0.592 - skipping` - an upgrade row skipping the unit its own placement
+verified moments earlier. The user's diagnosis was right: clicking an
+already-selected unit closes its info panel. The full chain:
+
+1. #3's placement leaves the unit AUTO-SELECTED; the end-of-step deselect
+   clicks the mis-calibrated deselect_btn, which can hit some other panel
+   control - the upgrade_level_roi read then says "closed" while the game
+   still has the unit SELECTED.
+2. #4's select click TOGGLES that still-selected unit OFF; the first read is
+   correctly False - and 2.38's recovery click never ran because it was gated
+   on "was a panel showing before the click", which read False in step 1.
+
+**The gate was the bug: the panel-state read cannot distinguish "closed" from
+"selected but mis-read", so recovery can't be conditioned on it.** The
+re-select click in `select_verified` and place's `_unit_is_there` is now
+UNCONDITIONAL on a False first read - correct in every case (re-selects a
+toggled-off unit; empty ground stays empty), costing one extra harmless click
+only on the False path.
+
+**Performance ("the program is slow sometimes")**: `wait_for_match_end` - the
+longest loop of a run - called `classify_frame`, which template-matched
+victory.png AND defeat.png against the FULL 1280x720 frame every 400ms for the
+entire match: measured 115ms per poll, i.e. ~30% of a core burned constantly
+while a match plays. Now matches inside `result_roi` + 6% margin: 7.4ms per
+poll (15.5x). RELEASE_REVIEW 1.6 closed. `classify_result_screen` (one-shot)
+stays full-frame. Also `StageSetup.reference_score` now caches the loaded
+reference image per path - it used to imread from disk on every call, and 2.39
+put it inside polling loops.
+
+Verified (8 sim cases): the exact selected-but-reads-closed state recovers to
+True (old logic skipped); empty spot False with exactly 2 clicks; clean select
+1 click; the three 2.38 place-loop regressions still green; cropped
+classification still finds the banner, 15.5x faster.
+
+### 2.41 Editor: "none" unit + "Click" action
+
+Two editor features (user request): a step that clicks a spot without selecting
+a unit.
+
+- **Unit dropdown gains "none"** (first entry) → `Step.slot = 0`, i.e. arm no
+  hotbar card. `slot_combo`/`set_slot_value` in ui/stage_editor.py handle it;
+  `_apply` maps the "none" text to slot 0. The Unit column is now editable for
+  `place` AND `click` (still disabled for upgrade rows).
+- **"What to do" gains "Click"** → new `click` action. `core/actions/click.py`
+  `ClickAction`: with Unit = none it's a bare click at the marker (dismiss a
+  popup, hit a stage button, deselect); with Unit = a slot it arms that card
+  then clicks (a place without the verify/retry machinery - rare). Registered
+  in `ACTION_CLASSES`; `data.profile.ACTIONS` gains "click"; `Step.summary` and
+  save/load round-trip it. Readiness's hotbar-slot check only inspects
+  place/ability, so a click/none step isn't flagged.
+- Verified with 17 sim cases (data model, ClickAction arm-vs-bare, slot_combo,
+  StepRow round-trip + action switching, profile persistence) and a rendered
+  editor showing a Click/none row.
+
 ## 3. Current state of the code
 
 **Phases 1 through 5 are all implemented and compile/import/smoke-tested.**

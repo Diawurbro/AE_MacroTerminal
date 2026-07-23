@@ -18,7 +18,7 @@ from PySide6.QtCore import QObject, QTimer, QLocale, Signal  # noqa: E402
 from PySide6.QtGui import QFont  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
-from ui.main_window import MainWindow, BAR_H  # noqa: E402
+from ui.main_window import MainWindow, MARGIN, GAME_W, GAME_H  # noqa: E402
 from ui.panels import DASHBOARD_QSS  # noqa: E402
 from ui.stage_editor import StageEditor, CameraTestThread, HAS_CAMERA  # noqa: E402
 from data.stats import StatsDB  # noqa: E402
@@ -151,6 +151,7 @@ class App:
         self.win = RobloxWindow(self.cfg)
         self.rect = None
         self.executor = None
+        self._capture_obj = None   # lazily created shared Capture, see _shared_cap
         self.stats_db = StatsDB(os.path.join(BASE, self.cfg["paths"]["database"]))
 
         # Two separate windows: a narrow full-height dashboard docked to the
@@ -188,13 +189,13 @@ class App:
         self.window.readiness.recheck_requested.connect(self.refresh_readiness)
         self.window.readiness.guide_requested.connect(self.show_guide)
 
-        # Dashboard: a short full-width bar docked to the bottom edge. The
+        # Dashboard: an L-shaped dock around the game. The control column sits
+        # to the right, the log strip beneath - positioned off the game's client
+        # rect once attached, or an expected top-left placement until then. The
         # editor is NOT shown at startup - it opens from the "Stage editor"
-        # button. Roblox is positioned in the space above this bar on attach.
-        screen = QApplication.primaryScreen().availableGeometry()
-        self.window.setGeometry(screen.x(), screen.y() + screen.height() - BAR_H,
-                                screen.width(), BAR_H)
+        # button.
         self.window.show()
+        self._layout_docks(None)
         self._editor_positioned = False
 
         self.watchdog = QTimer()
@@ -214,7 +215,7 @@ class App:
         except Exception as e:
             self.window.log.write(f"Global hotkeys unavailable: {e}")
 
-        self.window.log.write("Ready. Click 'Attach + center window'.")
+        self.window.log.write("Ready. Click 'Attach game window' to begin.")
         self.refresh_profile_list()
         self.refresh_readiness()
 
@@ -237,33 +238,48 @@ class App:
 
     # ---------------- window ----------------
 
+    def _layout_docks(self, rect):
+        """Shape the single dashboard window around the game: the control column
+        to its right, the log strip beneath, and a click-through hole where the
+        game is. `rect` is the game's client rect once attached, or None to use
+        the expected top-left placement before the first attach."""
+        screen = QApplication.primaryScreen().availableGeometry()
+        if rect is None:
+            game = (screen.x() + MARGIN, screen.y() + MARGIN, GAME_W, GAME_H)
+        else:
+            # The hole covers the whole Roblox window (title bar + client), so
+            # use the OUTER window rect, not the client rect.
+            wr = self.win.window_rect()
+            game = ((wr.x, wr.y, wr.w, wr.h) if wr
+                    else (rect.x, rect.y, rect.w, rect.h))
+        self.window.place(game, screen)
+
     def attach(self):
         hwnd = self.win.find()
         if not hwnd:
             self.window.setup_run.set_attached(False)
-            self.window.log.write("Roblox window not found. Is the game running?")
+            self.window.log.write("Couldn't find Roblox — is the game running?")
             QMessageBox.warning(None, "Attach",
-                                "Roblox window not found.\nLaunch the game first.")
+                                "Couldn't find Roblox. Open the game first, then try again.")
             return
-        # Position Roblox in the space above the bottom-docked dashboard bar.
-        self.rect = self.win.layout(bottom_bound=BAR_H + 10)
+        # Pin Roblox top-left; the dashboard docks around it (L-shape).
+        self.rect = self.win.layout(pin=(MARGIN, MARGIN))
         if self.rect:
+            self._layout_docks(self.rect)
             self.window.setup_run.set_attached(True, f"{self.rect.w}x{self.rect.h}")
             want_w = self.cfg["window"]["client_width"]
             want_h = self.cfg["window"]["client_height"]
             if (self.rect.w, self.rect.h) != (want_w, want_h):
                 self.window.log.write(
-                    f"WARNING: attached, but the client area is "
-                    f"{self.rect.w}x{self.rect.h}, not the requested "
-                    f"{want_w}x{want_h} - the resize didn't take. Likely "
-                    f"causes: Roblox is in fullscreen/borderless mode (switch "
-                    f"it to windowed in Settings), or Windows display scaling "
-                    f"is not 100% (open_items #2 in HANDOFF.md). Coordinates "
-                    f"will be wrong until this is fixed.")
+                    f"Warning: connected, but the window is "
+                    f"{self.rect.w}×{self.rect.h} instead of "
+                    f"{want_w}×{want_h}. Set Roblox to windowed mode and "
+                    f"Windows scaling to 100%, then try again — until then, "
+                    f"clicks will land in the wrong place.")
             else:
                 self.window.log.write(
-                    f"Attached. Client {self.rect.w}x{self.rect.h} at "
-                    f"({self.rect.x}, {self.rect.y})")
+                    f"Connected — {self.rect.w}×{self.rect.h} at "
+                    f"({self.rect.x}, {self.rect.y}).")
         self.refresh_readiness()
 
     def _check_window(self):
@@ -272,7 +288,7 @@ class App:
         if not self.win.is_alive():
             self.rect = None
             self.window.setup_run.set_attached(False)
-            self.window.log.write("Roblox window closed.")
+            self.window.log.write("Roblox was closed.")
             return
         cur = self.win.client_rect()
         if not cur:
@@ -285,7 +301,9 @@ class App:
                    abs(cur.w - self.rect.w), abs(cur.h - self.rect.h))
         if delta > 3:
             self.rect = cur
-            self.window.log.write("Roblox window moved.")
+            # Keep the docks glued to the game if it gets dragged/resized.
+            self._layout_docks(cur)
+            self.window.log.write("Roblox window moved — re-docking.")
         elif (cur.x, cur.y, cur.w, cur.h) != self.rect.as_tuple():
             self.rect = cur
 
@@ -293,14 +311,14 @@ class App:
 
     def test_camera_view(self):
         if not HAS_CAMERA:
-            self.window.log.write("Camera test unavailable - core input/camera modules missing.")
+            self.window.log.write("Camera test unavailable — required modules aren't installed.")
             return
         if not self.rect:
-            self.window.log.write("Attach the Roblox window first.")
+            self.window.log.write("Connect Roblox first.")
             return
         self.win.focus()  # SendInput goes to whatever window has OS focus
         self.window.setup_run.set_camera_testing(True)
-        self.window.log.write("Testing camera view - the camera will pitch down briefly...")
+        self.window.log.write("Testing the camera — it'll tilt down for a moment…")
         self._cam_thread = CameraTestThread(self.cfg, self.rect)
         self._cam_thread.done.connect(self._on_camera_test_done)
         self._cam_thread.failed.connect(self._on_camera_test_failed)
@@ -308,7 +326,7 @@ class App:
 
     def _on_camera_test_done(self):
         self.window.setup_run.set_camera_testing(False)
-        self.window.log.write("Camera view set - zoomed all the way out.")
+        self.window.log.write("Camera set to the top-down view.")
         self._report_reference_score()
         self.refresh_readiness()
 
@@ -320,24 +338,24 @@ class App:
         every run or lets a bad camera through."""
         ref = self.profile.reference_image
         if not (HAS_VISION and self.rect and ref and os.path.exists(ref)):
-            self.window.log.write("Open the stage editor and Capture ref now.")
+            self.window.log.write("Open the stage editor and capture a reference image.")
             return
         try:
-            score = vcap.similarity(vcap.Capture().grab(self.rect), vcap.load(ref))
+            score = vcap.similarity(self._shared_cap().grab(self.rect), vcap.load(ref))
         except Exception as e:
-            self.window.log.write(f"Couldn't score the reference match: {e}")
+            self.window.log.write(f"Couldn't compare to the reference image: {e}")
             return
         need = self.cfg.get("vision", {}).get("ref_match_threshold", 0.65)
         if score >= need:
             self.window.log.write(
-                f"Reference match: {score:.3f} (threshold {need}) - a run "
-                "would accept this camera.")
+                f"Camera match {score:.3f} (needs {need}) — looks good, a run "
+                "would accept it.")
         else:
             self.window.log.write(
-                f"Reference match: {score:.3f}, BELOW the threshold {need} - a "
-                "run would refuse to place anything. If the view looks right, "
-                f"set vision.ref_match_threshold a little under {score:.3f}; "
-                "if it doesn't, re-capture the reference.")
+                f"Camera match {score:.3f}, below the {need} needed — a run "
+                "would refuse to place units. If the view looks right, lower "
+                f"the match threshold to just under {score:.3f}; if it doesn't, "
+                "re-capture the reference.")
 
     def _on_camera_test_failed(self, msg: str):
         self.window.setup_run.set_camera_testing(False)
@@ -345,18 +363,29 @@ class App:
 
     # ---------------- capture ----------------
 
+    def _shared_cap(self):
+        """One reused Capture for all GUI-thread grabs (Test camera view /
+        Screenshot / Test read). Each vcap.Capture() opens an mss handle, so
+        making a fresh one per button click leaked a handle every time and
+        slowed the app over a calibration session (RELEASE_REVIEW 1.4). The
+        executor keeps its OWN Capture on the worker thread - mss handles are
+        per-thread - so this shared one is for the GUI thread only."""
+        if self._capture_obj is None:
+            self._capture_obj = vcap.Capture()
+        return self._capture_obj
+
     def _capture(self, rect, path):
         if not HAS_VISION:
             raise RuntimeError("opencv/mss not installed")
-        img = vcap.Capture().grab(rect)
+        img = self._shared_cap().grab(rect)
         vcap.save(img, path)
 
     def take_screenshot(self):
         if not HAS_VISION:
-            self.window.log.write("Screenshot unavailable - opencv/mss not installed.")
+            self.window.log.write("Screenshot unavailable — required modules aren't installed.")
             return
         if not self.rect:
-            self.window.log.write("Attach the Roblox window first.")
+            self.window.log.write("Connect Roblox first.")
             return
         out_dir = os.path.join(BASE, self.cfg["paths"].get("manual_screenshots", "screenshots"))
         os.makedirs(out_dir, exist_ok=True)
@@ -366,7 +395,7 @@ class App:
             self._capture(self.rect, path)
             self.window.log.write(f"Screenshot saved: {path}")
         except Exception as e:
-            self.window.log.write(f"Screenshot failed: {e}")
+            self.window.log.write(f"Couldn't save the screenshot: {e}")
 
     # ---------------- profile ----------------
 
@@ -397,7 +426,7 @@ class App:
             self.refresh_profile_list()
             return
         if not self.editor.load_profile_path(path):
-            self.window.log.write(f"Failed to load profile '{name}'.")
+            self.window.log.write(f"Couldn't load profile '{name}'.")
             return
         self._after_profile_change()
         self.window.log.write(
@@ -417,7 +446,7 @@ class App:
         # Executor shares this exact cfg dict, so it picks the change up live.
         self.cfg.setdefault("game", {})["press_start_game"] = on
         self.window.log.write(
-            f"Press Start Game at run start: {'ON' if on else 'OFF'}")
+            f"Auto-press 'Start Game': {'on' if on else 'off'}")
 
     # Which OCR reader the Calibrate tab's "Test read" button uses, keyed by
     # anchor name - each region needs a different parse (see core/ocr.py):
@@ -446,7 +475,7 @@ class App:
         self.win.focus()  # the ROI is captured from screen coords behind us
         reader = getattr(ocr, self._OCR_TEST_READERS.get(name, "read_int"))
         try:
-            img = vcap.Capture().grab_roi(self.rect, roi)
+            img = self._shared_cap().grab_roi(self.rect, roi)
             val = reader(img)
             if val == (None, None):
                 val = None
@@ -460,9 +489,9 @@ class App:
         profile). The executor shares this cfg dict, so the change is live."""
         try:
             save_config_value("game", "start_game_btn", xy)
-            self.window.log.write(f"Start Game button position saved: {xy}")
+            self.window.log.write(f"'Start Game' position saved: {xy}")
         except Exception as e:
-            self.window.log.write(f"Failed to save Start Game position: {e}")
+            self.window.log.write(f"Couldn't save the 'Start Game' position: {e}")
 
     # ---------------- webhook ----------------
 
@@ -470,9 +499,9 @@ class App:
         self.cfg.setdefault("discord", {})["webhook_url"] = url
         try:
             save_config_value("discord", "webhook_url", url)
-            self.window.log.write("Webhook URL saved to config.yaml.")
+            self.window.log.write("Webhook URL saved.")
         except Exception as e:
-            self.window.log.write(f"Failed to save webhook URL: {e}")
+            self.window.log.write(f"Couldn't save the webhook URL: {e}")
 
     def _test_webhook(self, url: str):
         send_webhook_test(url, log=self.window.log.write)
@@ -486,14 +515,14 @@ class App:
         """Ordered first-time setup walkthrough. The Readiness checklist tells
         you WHAT is missing; this tells you the ORDER to do it in."""
         QMessageBox.information(
-            None, "How to set up TD Macro",
+            None, "Setting up TD Macro",
             "First-time setup, in order:\n\n"
             "1. Launch Roblox and enter the game to the stage you want to farm.\n\n"
             "2. In Roblox Settings, set the display to WINDOWED mode and set "
             "Windows display scaling to 100% (Settings > Display > Scale). The "
             "macro clicks fixed positions - fullscreen/scaling breaks them.\n\n"
-            "3. Click 'Attach + center window'. The Readiness panel should turn "
-            "'Roblox attached' green at 1280x720.\n\n"
+            "3. Click 'Attach game window'. The Readiness panel should show "
+            "'Roblox connected' in green at 1280×720.\n\n"
             "4. Click 'Test camera view' - Roblox zooms to the top-down angle.\n\n"
             "5. Click 'Stage editor', then 'Capture ref' to snapshot the stage.\n\n"
             "6. In the editor's 'Calibrate' tab, click 'Set point' and click each "
@@ -507,7 +536,7 @@ class App:
             "https://github.com/UB-Mannheim/tesseract/wiki - if it's not on "
             "PATH, put its path in config.yaml under vision.tesseract_cmd.\n\n"
             "9. Back on the dashboard, click 'Re-check'. Fix any red items, then "
-            "press Start (F9). F12 is emergency stop.")
+            "press Start (F9). Press F12 for an emergency stop.")
 
     def _anchors_calibrated(self) -> bool:
         """Heuristic: the profile's anchors differ from any shipped default,
@@ -523,21 +552,21 @@ class App:
 
         if not self.rect:
             checks.append(("Roblox attached", "bad",
-                           "Launch the game, then click 'Attach + center window'."))
+                           "Open the game, then click 'Attach game window'."))
         else:
             want_w = self.cfg["window"]["client_width"]
             want_h = self.cfg["window"]["client_height"]
             if (self.rect.w, self.rect.h) != (want_w, want_h):
                 checks.append(("Roblox attached", "warn",
-                               f"Size {self.rect.w}x{self.rect.h}, want {want_w}x{want_h}. "
-                               "Use windowed mode + 100% display scaling."))
+                               f"Window is {self.rect.w}×{self.rect.h}, needs {want_w}×{want_h}. "
+                               "Use windowed mode and 100% display scaling."))
             else:
-                checks.append(("Roblox attached", "ok", f"{self.rect.w}x{self.rect.h}."))
+                checks.append(("Roblox attached", "ok", f"{self.rect.w}×{self.rect.h}."))
 
         n = len(self.profile.steps)
         if n == 0:
             checks.append(("Profile has steps", "bad",
-                           "Open the stage editor and add steps."))
+                           "Open the stage editor and add some steps."))
         else:
             checks.append(("Profile has steps", "ok", f"{n} step(s) loaded."))
 
@@ -553,9 +582,9 @@ class App:
             pass
         elif over:
             checks.append(("Hotbar slots", "bad",
-                           f"Step(s) use slot {', '.join(map(str, over))} but "
-                           f"game.hotbar covers {slot_count}. Set slot_count to "
-                           "your loadout size in config.yaml."))
+                           f"Uses slot {', '.join(map(str, over))}, but your "
+                           f"loadout only has {slot_count}. Update the loadout "
+                           "size to match."))
         else:
             checks.append(("Hotbar slots", "ok",
                            f"Using slot(s) {', '.join(map(str, used))} of {slot_count}."))
@@ -565,44 +594,44 @@ class App:
             checks.append(("Reference image", "ok", os.path.basename(ref)))
         else:
             checks.append(("Reference image", "bad",
-                           "Attach, Test camera view, then Capture ref in the editor."))
+                           "Connect Roblox, test the camera, then capture a reference image in the editor."))
 
         if self._anchors_calibrated():
-            checks.append(("Buttons/HUD calibrated", "ok", "Custom positions set."))
+            checks.append(("Buttons/HUD calibrated", "ok", "Calibrated."))
         else:
             checks.append(("Buttons/HUD calibrated", "warn",
-                           "Using default guesses - use the editor's Calibrate tab."))
+                           "Using default positions — fine-tune them in the editor's Calibrate tab."))
 
         tdir = os.path.join(BASE, "vision", "templates")
         has_win = os.path.exists(os.path.join(tdir, "victory.png"))
         if has_win and os.path.exists(os.path.join(tdir, "defeat.png")):
-            checks.append(("Win/Loss detection", "ok", "victory.png + defeat.png found."))
+            checks.append(("Win/Loss detection", "ok", "Win and loss screens recognised."))
         elif has_win:
             # victory.png alone is enough on the result screen: no ribbon means
             # a loss. defeat.png only sharpens the in-match banner check.
             checks.append(("Win/Loss detection", "ok",
-                           "victory.png found - losses inferred on the result screen."))
+                           "Win screen recognised; losses detected on the results screen."))
         else:
             checks.append(("Win/Loss detection", "bad",
-                           "victory.png missing. The colour fallback can't read this "
-                           "game (its victory ribbon is blue, not green)."))
+                           "Win screen image missing — add victory.png so the "
+                           "macro can tell wins from losses."))
 
         missing = [n for n in ("reward_close.png", "result_repeat.png")
                    if not os.path.exists(os.path.join(tdir, n))]
         if not missing:
             checks.append(("Auto-repeat loop", "ok",
-                           "Clicks through the item screens, then Repeat Stage."))
+                           "Clears the reward screens, then presses 'Repeat Stage'."))
         else:
             checks.append(("Auto-repeat loop", "warn",
-                           f"{', '.join(missing)} missing - the run won't get past "
-                           "the post-match screens on its own."))
+                           f"Missing {', '.join(missing)} — the macro can't get "
+                           "past the end-of-match screens without them."))
 
         from core import ocr
         if ocr.tesseract_ready(self.cfg.get("vision", {}).get("tesseract_cmd")):
-            checks.append(("Tesseract OCR", "ok", "Engine detected."))
+            checks.append(("Tesseract OCR", "ok", "Ready."))
         else:
             checks.append(("Tesseract OCR", "warn",
-                           "Not installed - cash/wave waits time out (delay waits work)."))
+                           "Not installed — cash/wave waits won't work (timed waits still do)."))
 
         return checks
 
@@ -614,13 +643,13 @@ class App:
             self.window.log.write("Already running.")
             return
         if not HAS_EXECUTOR:
-            self.window.log.write("Executor unavailable - check PySide6/opencv/mss install.")
+            self.window.log.write("The macro engine failed to load — please check the install.")
             return
         if not self.rect:
-            self.window.log.write("Attach the Roblox window first.")
+            self.window.log.write("Connect Roblox first.")
             return
         if not self.profile.steps:
-            self.window.log.write("Add steps in the stage editor or load a profile first.")
+            self.window.log.write("Add steps in the stage editor, or load a profile first.")
             return
 
         results_dir = os.path.join(BASE, self.cfg["paths"].get("screenshots", "logs/screenshots"))
@@ -638,13 +667,13 @@ class App:
 
         self.window.setup_run.set_running(True)
         self.window.stats.set_state("RUNNING")
-        self.window.log.write(f"Starting '{self.profile.stage}' - looping until "
+        self.window.log.write(f"Starting '{self.profile.stage}' — running until "
                               "you press Stop (F12).")
         self.executor.start()
 
     def stop(self):
         if self.executor is not None:
-            self.window.log.write("Stop requested - finishing current step...")
+            self.window.log.write("Stopping — finishing the current step…")
             self.executor.request_stop()
         else:
             self.window.log.write("Not running.")
@@ -662,7 +691,7 @@ class App:
 
     def exit_app(self):
         if self.executor is not None:
-            self.window.log.write("Exiting - stopping the running macro first...")
+            self.window.log.write("Closing — stopping the macro first…")
             self.executor.request_stop()
         QApplication.instance().quit()
 
@@ -684,7 +713,13 @@ def main():
     # Force English/US so QSpinBox etc. render Arabic numerals (0-9), not the
     # system-locale digits (e.g. Thai ๐-๙), and pin a clean Latin UI font.
     QLocale.setDefault(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
-    app.setFont(QFont("Segoe UI", 9))
+    # Nocturne specifies Inter; fall back to Segoe UI when it isn't installed
+    # (Qt uses the first family that resolves). setFamilies gives a real
+    # fallback chain rather than Qt's generic substitution.
+    ui_font = QFont()
+    ui_font.setFamilies(["Inter", "Segoe UI"])
+    ui_font.setPointSize(9)
+    app.setFont(ui_font)
     # App-wide so the QMessageBox dialogs below (attach warnings, the Guide,
     # the startup error) and Qt's own file dialogs inherit the dark theme -
     # parented to None they'd otherwise pop as bright white boxes. Widget-level
@@ -695,7 +730,7 @@ def main():
     except Exception as e:
         # Without this a frozen build just dies silently with no console.
         import traceback
-        QMessageBox.critical(None, "Startup failed",
+        QMessageBox.critical(None, "Couldn't start TD Macro",
                              f"{e}\n\n{traceback.format_exc()}")
         sys.exit(1)
     app.aboutToQuit.connect(gui.shutdown)

@@ -11,14 +11,14 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem,
     QAbstractItemView, QHeaderView, QTabWidget, QScrollArea,
     QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLabel, QLineEdit,
-    QFileDialog, QMessageBox, QGroupBox, QSplitter,
+    QFileDialog, QMessageBox, QGroupBox, QSplitter, QAbstractSpinBox,
 )
 
 from data.profile import StageProfile, Step, MAX_STEPS
 # Same theme as the dashboard - the editor is a second window of one tool, so
 # it must not look like a different application.
 from ui.panels import (
-    DASHBOARD_QSS, BAD, DIM, FAINT, OK, hsep, install_no_wheel_filter,
+    DASHBOARD_QSS, ACCENT_SOFT, BAD, DIM, FAINT, OK, hsep, install_no_wheel_filter,
 )
 
 try:
@@ -39,17 +39,18 @@ MARKER_R = 13
 # existing marker - use "+ Add step" and drag if you really need them that
 # close together.
 MARKER_GRAB_R = MARKER_R + 12
-# Markers sit on top of a game screenshot, so they are picked bright enough to
-# survive a busy, mid-tone background rather than matching the UI chrome.
-COLOR_PLACE = QColor("#6C63FF")
-COLOR_OTHER = QColor("#E08A1E")
-COLOR_SEL = QColor("#3FCF8E")
-CANVAS_BG = QColor("#08080B")
+# Markers sit on top of a game screenshot, so they stay bright enough to survive
+# a busy background. Colours are the Nocturne set from the Stage Editor mock:
+# blurple placement, warm upgrade, cyan calibrated.
+COLOR_PLACE = QColor("#9184D9")   # accent
+COLOR_OTHER = QColor("#D9A45C")   # upgrade step
+COLOR_SEL = QColor("#D2CEFD")     # accent-300 ring on the selected marker
+CANVAS_BG = QColor("#050507")
 
-# Calibration overlay (distinct teal so anchors never look like step markers).
-COLOR_ANCHOR = QColor("#22C3E6")
-COLOR_ANCHOR_EDGE = QColor("#062730")
-COLOR_BOX_FILL = QColor(34, 195, 230, 55)
+# Calibration overlay (distinct cyan so anchors never look like step markers).
+COLOR_ANCHOR = QColor("#5CC2D9")
+COLOR_ANCHOR_EDGE = QColor("#0E3540")
+COLOR_BOX_FILL = QColor(92, 194, 217, 55)
 
 # Anchor sets the Calibrate tab drives. Point anchors are single [x, y]
 # positions; box anchors are [x1, y1, x2, y2] HUD regions. "scope" says where
@@ -84,30 +85,33 @@ def hotbar_slot_count(cfg: dict) -> int:
 
 
 def slot_combo(slot_count: int, value: int | None = None) -> QComboBox:
-    """The 'Unit' picker: which hotbar card this step clicks.
+    """The 'Unit' picker: which hotbar card this step arms.
 
     A dropdown of the slots that actually exist, not a 1-9 spin box - the bar
     holds a fixed number of cards, so free-typing a 9 into a 6-card bar only
-    ever produced a step the run had to skip."""
+    ever produced a step the run had to skip. "none" (slot 0) arms nothing -
+    for a Click step that shouldn't select a unit."""
     cb = QComboBox()
+    cb.addItem("none")
     cb.addItems([str(i) for i in range(1, max(1, slot_count) + 1)])
-    cb.setToolTip("Which hotbar card is clicked to pick this unit before "
-                  "clicking the map. The card list comes from game.hotbar "
-                  "in config.yaml - set slot_count there to match your loadout.")
+    cb.setToolTip("Which hotbar card is armed before clicking the map. 'none' "
+                  "arms nothing (a bare click). The card list comes from "
+                  "game.hotbar in config.yaml - set slot_count to your loadout.")
     if value is not None:
         set_slot_value(cb, value)
     return cb
 
 
 def set_slot_value(cb: QComboBox, value: int):
-    """Select a slot, adding it first if the bar doesn't have that card.
+    """Select a slot, adding it first if the bar doesn't have that card. 0/none
+    means no unit armed.
 
     A profile saved against a bigger loadout can name a slot this config
     doesn't cover. setCurrentText() on a missing entry is a silent no-op, so
     the step would display (and then save) as whatever was already showing -
     quietly rewriting the user's data. Showing the impossible value instead
     lets the Readiness check flag it."""
-    text = str(value)
+    text = "none" if not value else str(value)
     if cb.findText(text) < 0:
         cb.addItem(text)
     cb.setCurrentText(text)
@@ -431,6 +435,7 @@ class StepRow:
 
     # Label -> (Step.action, Step.upgrade_mode).
     WHAT = [("Place", "place", "off"),
+            ("Click", "click", "off"),
             ("Upgrade to N", "upgrade", "off"),
             ("Upgrade to max", "upgrade", "max")]
 
@@ -462,6 +467,9 @@ class StepRow:
         self.sp_times = QSpinBox()
         self.sp_times.setRange(1, 20)
         self.sp_times.setValue(step.times)
+        # No step arrows - on the dark theme they render as a murky block, and
+        # the wheel is filtered out anyway, so it's a plain typed number field.
+        self.sp_times.setButtonSymbols(QAbstractSpinBox.NoButtons)
         self.sp_times.setFixedWidth(46)
         self.sp_times.setToolTip("How many levels to buy. Each one is clicked "
                                  "until the panel's level readout actually "
@@ -484,6 +492,7 @@ class StepRow:
         sp.setRange(0.0, 1.0)
         sp.setDecimals(3)
         sp.setSingleStep(0.005)
+        sp.setButtonSymbols(QAbstractSpinBox.NoButtons)   # plain text field, no arrow block
         sp.setValue(value)
         sp.setToolTip("Position on the reference image, 0-1. Clicking the "
                       "image with this row selected sets it.")
@@ -491,11 +500,12 @@ class StepRow:
         return sp
 
     def _sync_enabled(self):
-        """The count only means something for "Upgrade to N", and the unit
-        only means something for a placement - an upgrade row acts on
-        whatever is already standing at its position."""
+        """The count only means something for "Upgrade to N"; the unit only
+        means something for a placement or a click (an upgrade row acts on
+        whatever is already standing at its position). A click can arm a unit
+        or, with "none", just click."""
         self.sp_times.setVisible(self.cb_what.currentText() == "Upgrade to N")
-        self.cb_unit.setEnabled(self.step.action == "place")
+        self.cb_unit.setEnabled(self.step.action in ("place", "click"))
 
     def set_position(self, x: float, y: float):
         """Marker was dragged - show the new spot without re-entering _apply."""
@@ -514,7 +524,8 @@ class StepRow:
     def _apply(self, *_):
         if self._loading:
             return
-        self.step.slot = int(self.cb_unit.currentText())
+        unit = self.cb_unit.currentText()
+        self.step.slot = 0 if unit == "none" else int(unit)
         label = self.cb_what.currentText()
         for text, action, mode in self.WHAT:
             if text == label:
@@ -566,7 +577,7 @@ class StageEditor(QWidget):
         top = QHBoxLayout()
         top.setSpacing(6)
         lbl_stage = QLabel("Stage")
-        lbl_stage.setObjectName("sectionHead")
+        lbl_stage.setObjectName("muted")
         top.addWidget(lbl_stage)
         self.stage_name = QLineEdit(self.profile.stage)
         self.stage_name.setPlaceholderText("Stage name (used for profile + capture filenames)")
@@ -638,7 +649,7 @@ class StageEditor(QWidget):
         tv.addWidget(cap_all)
 
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["#", "X", "Y", "Unit", "What to do"])
+        self.table.setHorizontalHeaderLabels(["#", "X", "Y", "UNIT", "WHAT TO DO"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -664,7 +675,7 @@ class StageEditor(QWidget):
 
         head = QHBoxLayout()
         head.setSpacing(6)
-        lbl_steps = QLabel("This run")
+        lbl_steps = QLabel("THIS RUN")
         lbl_steps.setObjectName("sectionHead")
         head.addWidget(lbl_steps)
         self.lbl_step_count = QLabel("nothing added yet")
@@ -745,10 +756,11 @@ class StageEditor(QWidget):
             card.setVisible(not (self.profile.reference_image and self.profile.steps))
 
     def _status(self, msg: str, level: str = "info"):
-        """Single status line at the bottom of the editor. Level colours it so
-        a refusal ('capture a reference first') isn't mistaken for progress."""
-        color = {"bad": BAD, "ok": OK}.get(level, DIM)
-        self.status.setStyleSheet(f"color: {color}; padding: 3px 2px; font-size: 11px;")
+        """Single status line at the bottom of the editor. The default is the
+        accent-300 status colour from the mock; level still overrides it so a
+        refusal ('capture a reference first') isn't mistaken for progress."""
+        color = {"bad": BAD, "ok": OK}.get(level, ACCENT_SOFT)
+        self.status.setStyleSheet(f"color: {color}; padding: 3px 2px; font-size: 12px;")
         self.status.setText(msg)
 
     # ---------------- calibrate tab ----------------

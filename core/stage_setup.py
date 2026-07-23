@@ -16,6 +16,10 @@ class StageSetup:
         self.camera = camera
         self.state_detector = state_detector
         self.panel = panel
+        # reference_score is called in polling loops (repeat verify, camera
+        # attempts) - cache the loaded reference so each poll isn't a disk read.
+        self._ref_path = None
+        self._ref_img = None
 
     def wait_for_in_stage(self, rect) -> bool:
         """Optional gate (execution.wait_for_in_stage): block until the game-
@@ -59,16 +63,22 @@ class StageSetup:
         self.ctx.drv.wait(self.ctx.game("teleport_wait_ms", 1500))
 
     def normalize_camera(self, rect):
-        self.ctx.log("Normalizing camera (top-down)...")
+        self.ctx.log("Setting the camera to top-down…")
         self.camera.normalize(rect)
 
     def reference_score(self, rect) -> float | None:
         """How closely the live screen matches the stage reference image, or
-        None when there's no reference to compare against."""
+        None when there's no reference to compare against. The reference is
+        cached per path - this runs inside polling loops."""
         ref_path = self.ctx.profile.reference_image
         if not ref_path or not os.path.exists(ref_path):
             return None
-        return vcap.similarity(self.ctx.cap.grab(rect), vcap.load(ref_path))
+        if self._ref_img is None or self._ref_path != ref_path:
+            self._ref_img = vcap.load(ref_path)
+            self._ref_path = ref_path
+            if self._ref_img is None:
+                return None
+        return vcap.similarity(self.ctx.cap.grab(rect), self._ref_img)
 
     def normalize_and_verify(self, rect) -> bool:
         """Get the camera to its clamps and CONFIRM it landed there, retrying
@@ -93,18 +103,18 @@ class StageSetup:
             self.normalize_camera(rect)
             score = self.reference_score(rect)
             if score is None:
-                self.ctx.log("No reference image set - skipping camera "
-                             "verification. Capture one: the run cannot tell "
-                             "a good camera from a bad one without it.")
+                self.ctx.log("No reference image — can't check the camera. "
+                             "Capture one so the macro knows the view is "
+                             "correct.")
                 return True
             best = score if best is None else max(best, score)
-            self.ctx.log(f"Reference match: {score:.3f} (need >= {threshold})")
+            self.ctx.log(f"Camera match {score:.3f} (needs {threshold})")
             if score >= threshold:
                 return True
             if i + 1 < attempts:
-                self.ctx.log(f"Camera doesn't match the reference - "
-                             f"re-normalizing (attempt {i + 2}/{attempts}).")
-        self.ctx.log(f"Camera never matched the reference (best {best:.3f} of "
+                self.ctx.log(f"Camera's off — adjusting again "
+                             f"(try {i + 2} of {attempts}).")
+        self.ctx.log(f"Couldn't line up the camera (best {best:.3f}, needs "
                      f"{threshold}).")
         return False
 
@@ -130,15 +140,15 @@ class StageSetup:
         roi = self.ctx.anchor("upgrade_level_roi")
         if not roi:
             self.ctx.panel_empty = None
-            self.ctx.log("upgrade_level_roi isn't calibrated - placements fall "
-                         "back to watching the map, which can't tell a new unit "
-                         "from a neighbour's. Set it in the Calibrate tab.")
+            self.ctx.log("The unit-level readout isn't calibrated — placements "
+                         "fall back to watching the map, which is less "
+                         "reliable. Set it in the Calibrate tab.")
             return
         img, settled = self.ctx.settle_roi(rect, roi)
         self.ctx.panel_empty = img
         if not settled:
-            self.ctx.log("The unit-panel region never settled - placement "
-                         "checks this loop may be unreliable.")
+            self.ctx.log("The unit panel didn't settle — placement checks "
+                         "this round may be unreliable.")
 
     def press_start_game(self, rect):
         """Click the in-game 'Start Game' button so a run kicks off the match
@@ -148,9 +158,9 @@ class StageSetup:
             return
         btn = self.ctx.game("start_game_btn")
         if not btn:
-            self.ctx.log("press_start_game is on but game.start_game_btn is not set.")
+            self.ctx.log("'Start Game' is enabled but its position isn't set — calibrate it.")
             return
         sx, sy = rect.to_screen(*btn)
         self.ctx.drv.click(sx, sy)
-        self.ctx.log("Pressed Start Game.")
+        self.ctx.log("Pressed 'Start Game'.")
         self.ctx.drv.wait(self.ctx.game("start_game_wait_ms", 400))

@@ -11,7 +11,7 @@ class AbilityAction(StepAction):
         # forget: there's no persistent object left behind to verify against,
         # so there's nothing for a region-diff to check.
         if not self.hotbar.select(rect, step.slot, settle_ms=100):
-            self.ctx.log(f"#{step.id} ability skipped - hotbar slot "
-                         f"{step.slot} has no position.")
+            self.ctx.log(f"Step {step.id}: ability skipped — hotbar slot "
+                         f"{step.slot} isn't in your loadout.")
             return
         self.ctx.drv.click(target.sx, target.sy)

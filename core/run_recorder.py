@@ -21,7 +21,7 @@ class RunRecorder:
         shot_path = self._screenshot(outcome, started, rect)
         self.stats.record(self.ctx.profile.stage, outcome, loop_no, started, shot_path)
         duration = time.time() - started
-        self.ctx.log(f"Loop {loop_no} result: {outcome} ({duration:.0f}s)")
+        self.ctx.log(f"Round {loop_no} result: {outcome} ({duration:.0f}s)")
 
         # 'abort' is neither a win nor a loss - recorded for history, but it
         # must not touch the loss streak or fire a notification.
@@ -43,7 +43,7 @@ class RunRecorder:
             vcap.save(frame, path)
             return path
         except Exception as e:
-            self.ctx.log(f"Screenshot failed: {e}")
+            self.ctx.log(f"Couldn't save the screenshot: {e}")
             return None
 
     def _notify(self, won: bool, loop_no: int, duration: float, shot_path):

@@ -30,8 +30,8 @@ class PreconditionWaiter:
 
         roi, read = self._reader_for(w.type)
         if not roi:
-            self.ctx.log(f"#{step.id} {w.label()}: that HUD region isn't "
-                         "calibrated - continuing without waiting.")
+            self.ctx.log(f"Step {step.id}: {w.label()} — that HUD area isn't "
+                         "calibrated, so continuing without waiting.")
             return
 
         def satisfied():
@@ -39,7 +39,7 @@ class PreconditionWaiter:
             return val is not None and val >= w.value
 
         if not self.ctx.poll_until(satisfied, self.ctx.execution("wait_timeout_s", 30)):
-            self.ctx.log(f"Timed out waiting for {w.label()}.")
+            self.ctx.log(f"Gave up waiting for {w.label()}.")
 
     def _reader_for(self, wait_type: str):
         """(roi, reader) for a wait type. Which OCR reader matters: the wave
@@ -58,9 +58,9 @@ class StepRunner:
         self.actions = build_actions(ctx, panel)
 
     def run(self, step, rect):
-        wait_note = (f" (waiting: {step.wait.label()})"
+        wait_note = (f" — waiting for {step.wait.label()}"
                      if step.wait.type != "none" else "")
-        self.ctx.log(f"Step #{step.id}: {step.summary()}{wait_note}")
+        self.ctx.log(f"Step {step.id}: {step.summary()}{wait_note}")
 
         self.precondition.wait_for(step, rect)
         self.ctx.check_stop()
@@ -68,12 +68,12 @@ class StepRunner:
         target = self._resolve(step, rect)
         action = self.actions.get(step.action)
         if action is None:
-            self.ctx.log(f"#{step.id} unknown action {step.action!r} - skipped.")
+            self.ctx.log(f"Step {step.id}: unknown action {step.action!r} — skipped.")
         else:
             action.execute(step, rect, target)
 
         if step.note:
-            self.ctx.log(f"#{step.id} {step.summary()} - {step.note}")
+            self.ctx.log(f"Step {step.id}: {step.summary()} — {step.note}")
         self.ctx.drv.gap()
 
     def _resolve(self, step, rect) -> Target:

@@ -4,7 +4,7 @@ import json
 import os
 from dataclasses import dataclass, field, fields, asdict
 
-ACTIONS = ["place", "upgrade", "sell", "ability", "wait"]
+ACTIONS = ["place", "click", "upgrade", "sell", "ability", "wait"]
 WAIT_TYPES = ["none", "cash", "wave", "delay"]
 MAX_STEPS = 100
 
@@ -48,7 +48,7 @@ class Step:
     action: str = "place"
     x: float = 0.5              # normalized 0-1 in client area
     y: float = 0.5
-    slot: int = 1               # hotbar slot for 'place'
+    slot: int = 1               # hotbar slot for 'place'; 0 = none (no unit armed)
     times: int = 1              # repeat count for 'upgrade', or for 'place' when upgrade_mode="times"
     target_step: int | None = None   # 'upgrade'/'sell' reference another marker
     wait: WaitCond = field(default_factory=WaitCond)
@@ -75,6 +75,8 @@ class Step:
                 extra.append("upg max")
             tail = f" ({', '.join(extra)})" if extra else ""
             return f"place unit slot {self.slot}{tail}"
+        if self.action == "click":
+            return "click" if not self.slot else f"click (arm unit {self.slot})"
         if self.action == "upgrade":
             tgt = f" -> #{self.target_step}" if self.target_step else ""
             what = "to max" if self.upgrade_mode == "max" else f"x{self.times}"

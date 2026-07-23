@@ -53,18 +53,35 @@ class UnitPanel:
         relative baseline reads "changed" when a leftover panel CLOSES, i.e.
         it reports a unit exactly when there isn't one (HANDOFF 2.30).
 
+        No deselect-first (HANDOFF 2.38): clicking unit B while A's panel is
+        open SWITCHES the panel to B, and clicking empty ground deselects - so
+        the click itself resolves a leftover panel either way, without
+        depending on deselect_btn / deselect_point being calibrated (the
+        dependency behind the skipped-placement failures). The one trap is
+        clicking the SAME already-selected unit, which toggles its panel OFF
+        and reads as "no unit here" - recovered with one more click, which
+        re-selects it.
+
+        The recovery click is UNCONDITIONAL on a False first read - it used to
+        be gated on "was a panel showing before the click", but that read
+        can't tell "closed" from "still selected but mis-read" (a mis-aimed
+        deselect can collapse the panel without deselecting, and the region
+        then reads empty). That gap made the upgrade row right after a
+        placement toggle its own just-placed unit off and skip with "no unit"
+        (HANDOFF 2.40). An empty spot just pays one extra harmless click.
+
         Waits place_select_wait_ms (400) for the panel to draw before reading
-        it, same as the placement check (place.py) - select()'s 150ms default
-        was too short, so a slow panel draw read as "no unit here" and
-        priority/upgrade/sell skipped a perfectly good unit (bug 1.2)."""
+        it, same as the placement check (place.py) - a slow panel draw used to
+        read as "no unit here" (bug 1.2)."""
         settle = self.ctx.execution("place_select_wait_ms", 400)
         if self.ctx.panel_empty is None:
             self.select(sx, sy, settle)
             return None
+        self.select(sx, sy, settle)
         if self.ctx.panel_shows_unit(rect):
-            # Whatever is selected was selected by an earlier step and is not
-            # necessarily the unit at this spot - it would answer for it.
-            self.deselect(rect)
+            return True
+        # May have toggled OFF the very unit being selected - one more click
+        # re-selects it. An empty spot stays empty (correct False).
         self.select(sx, sy, settle)
         return self.ctx.panel_shows_unit(rect)
 
@@ -83,33 +100,55 @@ class UnitPanel:
             return
 
         # Still open. Fall back to clicking bare ground - the game deselects
-        # when you click away from a unit, and unlike deselect_btn that
-        # doesn't depend on an anchor being calibrated right. Safe because no
-        # hotbar card is ever armed here: arming is immediately followed by
-        # its placement click.
-        self.ctx.drv.click(*rect.to_screen(
-            *self.ctx.execution("cursor_park", [0.02, 0.5])))
-        self.ctx.drv.wait(120)
-        if self.ctx.panel_shows_unit(rect) and not self._warned_deselect:
+        # when you click away from a unit, and unlike deselect_btn that doesn't
+        # depend on an anchor being calibrated right. Safe because no hotbar
+        # card is ever armed here: arming is immediately followed by its
+        # placement click.
+        #
+        # Retried a few times because ONE stuck panel breaks the whole rest of
+        # the loop: every later "is a unit already here?" check then reads the
+        # leftover panel as "yes", so subsequent placements are skipped without
+        # a click (the reported "not even placing" bug). A swallowed click or a
+        # frame of lag is enough to need a second try.
+        #
+        # deselect_point is its own point, NOT cursor_park: the unit panel is
+        # bottom-LEFT (~x 0.01-0.33, y 0.30-0.71) and cursor_park's [0.02, 0.5]
+        # lands INSIDE it, so that click hit the panel and never closed it.
+        point = self.ctx.execution("deselect_point", [0.62, 0.25])
+        for _ in range(max(1, self.ctx.execution("deselect_attempts", 3))):
+            self.ctx.drv.click(*rect.to_screen(*point))
+            self.ctx.drv.wait(150)
+            if not self.ctx.panel_shows_unit(rect):
+                return
+        if not self._warned_deselect:
             self._warned_deselect = True
-            self.ctx.log("The unit panel won't close - deselect_btn looks "
-                         "mis-calibrated (Calibrate tab > 'Unit panel close "
-                         "(X)') and clicking bare ground didn't do it either. "
-                         "It will sit over the map.")
+            self.ctx.log("Couldn't close the unit panel — calibrate 'Unit "
+                         "panel close (X)' in the Calibrate tab, or move the "
+                         "deselect point onto empty ground. Until then it may "
+                         "sit over the map and cause skipped placements.")
 
     # ---------------- the three action buttons ----------------
 
     def action(self, rect, name: str):
         """Trigger the selected unit's Upgrade / Sell / Priority control.
 
-        Clicks the measured ui_anchors position. The panel does print a
-        keybind badge on each button ([T]/[X]/[R]) and there used to be a
-        game.use_unit_keys escape hatch that pressed those instead; it's gone
-        (HANDOFF 2.22) - this macro sends no keystrokes to the game at all
-        now, so there is one code path here and it's the one that gets
-        exercised on every run.
+        Default (game.use_unit_keys, HANDOFF 2.38): tap the control's own
+        keybind - the panel prints one on each button ([T] Upgrade, [X] Sell,
+        [R] Priority, measured in 2.14). A keypress can't land a few px off
+        the button or get eaten by an overlay the way a click can, which
+        stalled real runs. Falls back to clicking the measured ui_anchors
+        position when keys are off or the key isn't mapped.
 
         Requires a unit to already be selected; does nothing otherwise."""
+        if self.ctx.game("use_unit_keys", True):
+            key = (self.ctx.game("unit_keys", {}) or {}).get(name)
+            if key:
+                try:
+                    self.ctx.drv.tap(str(key))
+                    return
+                except KeyError:
+                    self.ctx.log(f"{key!r} isn't a valid key for {name} — "
+                                 "clicking the button instead.")
         self.ctx.click_anchor(rect, f"{name}_btn")
 
     # ---------------- priority ----------------
@@ -144,9 +183,9 @@ class UnitPanel:
         # genuinely empty (the placement here failed) and None when there's no
         # baseline to judge, in which case we carry on exactly as before.
         if self.select_verified(rect, sx, sy) is False:
-            self.ctx.log(f"#{step.id} priority '{step.priority}': no unit at "
-                         f"{step.x:.3f}, {step.y:.3f} - skipping (the placement "
-                         "for this spot probably failed).")
+            self.ctx.log(f"Step {step.id}: can't set priority '{step.priority}' "
+                         f"— no unit at {step.x:.3f}, {step.y:.3f} (its "
+                         "placement likely failed).")
             return
         label_roi = self.ctx.anchor("priority_label_roi")
         target = step.priority
@@ -154,8 +193,8 @@ class UnitPanel:
         if not ocr.HAS_TESSERACT or not label_roi:
             reason = ("Tesseract not installed" if not ocr.HAS_TESSERACT
                       else "priority_label_roi not calibrated")
-            self.ctx.log(f"#{step.id} priority '{target}': {reason} - "
-                         "activating once, unverified.")
+            self.ctx.log(f"Step {step.id}: priority '{target}' — {reason}; "
+                         "setting it once without checking.")
             self.action(rect, "priority")
             self.ctx.drv.wait(150)
             return
@@ -165,7 +204,7 @@ class UnitPanel:
             return (word or "").strip().lower()
 
         if read() == target.lower():
-            self.ctx.log(f"#{step.id} priority already '{target}'.")
+            self.ctx.log(f"Step {step.id}: priority already '{target}'.")
             return
 
         limit = max(1, len(PRIORITY_TYPES))
@@ -176,11 +215,11 @@ class UnitPanel:
             self.ctx.drv.wait(150)
             cur = read()
             if cur == target.lower():
-                self.ctx.log(f"#{step.id} priority -> {target}.")
+                self.ctx.log(f"Step {step.id}: priority set to {target}.")
                 return
-        self.ctx.log(f"#{step.id} priority '{target}' not reached after "
-                     f"{limit} attempt(s) (last read: {cur!r}) - PRIORITY_TYPES "
-                     "may not match this game's actual options.")
+        self.ctx.log(f"Step {step.id}: couldn't set priority to '{target}' "
+                     f"after {limit} tries (last read: {cur!r}) — the option "
+                     "list may not match this game.")
 
     # ---------------- upgrading ----------------
 
@@ -205,14 +244,18 @@ class UnitPanel:
         return n, m
 
     def upgrade_once(self, rect, step) -> bool:
-        """Buy exactly ONE level: click Upgrade until the panel's level
-        readout actually changes.
+        """Buy exactly ONE level: click Upgrade until the panel's level readout
+        CHANGES - that change is the only reliable "a level was bought" signal.
 
-        "Nothing happened" almost always means "can't afford the next level
-        yet", which is a wait, not a failure - so it keeps clicking on a slow
-        interval instead of moving on (the user's ask: click until it
-        upgrades). execution.upgrade_timeout_s is only the give-up guard, and
-        reaching it is the signal for "maxed out, or never affordable".
+        A readout that doesn't change is either maxed or not-yet-affordable, and
+        those need opposite handling, so ONLY on a no-change is the N/M caption
+        read (OCR): N>=M means maxed - stop now; N<M means "can't afford yet" -
+        keep clicking on a slow interval until income arrives (the user's ask).
+
+        Reading OCR only here, never to pre-empt a click, is what keeps a MISREAD
+        max from stopping an upgrade early: a level that can actually buy changes
+        the readout and is counted before OCR is ever looked at - so "5/8"
+        misread as "5/5" no longer maxes a unit at level 5 (the reported bug).
 
         Falls back to a single unverified click when upgrade_level_roi isn't
         calibrated - there is nothing to watch, and one click is what the old
@@ -232,7 +275,11 @@ class UnitPanel:
             self.action(rect, "upgrade")
             self.ctx.drv.wait(confirm)
             if vcap.region_changed(before, self.level_shot(rect)):
-                return True
+                return True   # a level was bought
+            # No change: maxed, or can't afford the next level yet?
+            lvl = self._read_level(rect)
+            if lvl and lvl[0] >= lvl[1]:
+                return False   # maxed - stop now instead of waiting out the timeout
             if time.monotonic() >= deadline:
                 return False
             self.ctx.drv.wait(interval)
@@ -242,63 +289,49 @@ class UnitPanel:
         upgrade and sell paths, so the message stays action-neutral."""
         opened = self.select_verified(rect, sx, sy)
         if opened is False:
-            self.ctx.log(f"#{step.id}: no unit at {step.x:.3f}, {step.y:.3f} - "
-                         "skipping (the placement for this spot probably "
+            self.ctx.log(f"Step {step.id}: no unit at {step.x:.3f}, "
+                         f"{step.y:.3f} — skipping (its placement likely "
                          "failed).")
             return False
         return True
 
     def upgrade_times(self, rect, sx, sy, step, times: int):
-        """Buy N levels, each one verified before counting it. Stops early if
-        the unit maxes out before N (read from the N/M caption when OCR is
-        available)."""
+        """Buy N levels, each one verified by the readout changing. Stops early
+        if the unit maxes out before N - upgrade_once returns False once a level
+        can't be bought (maxed, per the N/M read on no-change)."""
         if not self._open_panel(rect, sx, sy, step):
             return
         n = max(1, times)
         for i in range(n):
             self.ctx.check_stop()
-            lvl = self._read_level(rect)
-            if lvl and lvl[0] >= lvl[1]:
-                self.ctx.log(f"#{step.id} upgrade: unit maxed at {lvl[0]}/{lvl[1]} "
-                             f"after {i} level(s) - wanted {n}.")
-                return
             if not self.upgrade_once(rect, step):
-                self.ctx.log(f"#{step.id} upgrade: got {i} of {n} level(s) - "
-                             "the next one never applied (maxed out, or not "
-                             "affordable within execution.upgrade_timeout_s).")
+                self.ctx.log(f"Step {step.id}: upgraded {i} of {n} levels — "
+                             "the next one wouldn't apply (maxed out, or "
+                             "couldn't afford it in time).")
                 return
-        self.ctx.log(f"#{step.id} upgraded x{n}.")
+        self.ctx.log(f"Step {step.id}: upgraded {n}×.")
 
     def upgrade_max(self, rect, sx, sy, step):
         """Buy levels until the unit is maxed.
 
-        The definitive stop is the panel's "Upgrade N/M" caption: quit the
-        moment N>=M (read via OCR), so a maxed unit is left alone immediately
-        instead of getting its dead Upgrade button clicked for the full
-        upgrade_timeout_s first (the "doesn't stop after upgrade to max"
-        report). When the caption can't be read (no Tesseract / uncalibrated
-        ROI) it falls back to the pixel-diff give-up in upgrade_once - the same
-        behaviour as before, just slower to notice max (HANDOFF 2.19/2.27)."""
+        Each iteration buys one level (upgrade_once), which returns False the
+        moment a level can't be bought - a readout that won't change AND an N/M
+        read of N>=M (see upgrade_once). The max check lives THERE, not as a
+        top-of-loop pre-check, so a misread max ("5/8" -> "5/5") can't stop the
+        loop early: a buyable level changes the readout and is counted first."""
         if not self._open_panel(rect, sx, sy, step):
             return
         cap = self.ctx.execution("max_upgrade_clicks", 30)
         got = 0
-        maxed_at = None
         for _ in range(cap):
             self.ctx.check_stop()
-            lvl = self._read_level(rect)
-            if lvl and lvl[0] >= lvl[1]:
-                maxed_at = lvl
-                break
             if not self.upgrade_once(rect, step):
                 break
             got += 1
-        if maxed_at:
-            self.ctx.log(f"#{step.id} upgrade-to-max: maxed at "
-                         f"{maxed_at[0]}/{maxed_at[1]} ({got} level(s) this run).")
-        else:
-            tail = " (hit execution.max_upgrade_clicks)" if got >= cap else ""
-            self.ctx.log(f"#{step.id} upgrade-to-max: bought {got} level(s){tail}.")
+        lvl = self._read_level(rect)
+        where = f" (now {lvl[0]}/{lvl[1]})" if lvl else ""
+        tail = " — reached the upgrade limit" if got >= cap else ""
+        self.ctx.log(f"Step {step.id}: upgraded to max — bought {got} levels{where}{tail}.")
 
     # ---------------- selling ----------------
 

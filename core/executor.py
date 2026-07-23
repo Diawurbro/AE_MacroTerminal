@@ -86,8 +86,8 @@ class Executor(QThread):
 
         ocr.configure(self.cfg.get("vision", {}).get("tesseract_cmd"))
         if not ocr.HAS_TESSERACT:
-            self.log.emit("pytesseract/Tesseract not available - cash/wave "
-                          "waits will time out. Install Tesseract-OCR.")
+            self.log.emit("Tesseract isn't installed — cash/wave waits won't "
+                          "work. Install it to enable them.")
 
     def run(self):
         self._build()
@@ -107,14 +107,14 @@ class Executor(QThread):
                 aborts += 1
                 limit = self.ctx.execution("max_consecutive_aborts", 3)
                 if aborts >= limit:
-                    self.log.emit(f"Stopping: {aborts} loops in a row ended "
-                                  "before any step ran. Fix what the messages "
-                                  "above report, then start again.")
+                    self.log.emit(f"Stopping — {aborts} rounds in a row ended "
+                                  "before any step ran. Fix the issues above, "
+                                  "then start again.")
                     break
         except StopRequested:
             self.log.emit("Stopped.")
         except Exception as e:
-            self.log.emit(f"Executor error: {e}")
+            self.log.emit(f"Run error: {e}")
         finally:
             self.state.emit("IDLE")
 
@@ -145,7 +145,7 @@ class Executor(QThread):
         step - see the abort counter in run()."""
         started = time.time()
         self.state.emit("RUNNING")
-        self.log.emit(f"--- Loop {loop_no} start ---")
+        self.log.emit(f"── Round {loop_no} ──")
         self._ensure_foreground()
         rect = self._rect()
 
@@ -153,27 +153,35 @@ class Executor(QThread):
             self.recorder.record(loop_no, outcome, started, rect)
 
         if not self.setup.wait_for_in_stage(rect):
-            self.log.emit("Never reached the in-stage state - skipping this loop.")
+            self.log.emit("Never reached the stage — skipping this round.")
             record("abort")
             return False
 
         self.setup.teleport_to_spawn(rect)
         self._check_stop()
 
-        if not self.setup.normalize_and_verify(rect):
+        # Full normalize+verify EVERY round, entry or repeat - no shortcut that
+        # skips it when the camera "looked fine" last time. Repeat Stage
+        # respawns the character and Roblox resets the camera on respawn, so
+        # a round that trusted the previous camera ran on the default angled
+        # view and placed nothing where it thought (HANDOFF 2.39). Clamp-based
+        # normalize is idempotent - running it again when the camera is
+        # already correct lands in the same place - so doing it unconditionally
+        # costs a little time but makes every round follow the identical
+        # sequence instead of branching on what the last round happened to do.
+        camera_ok = self.setup.normalize_and_verify(rect)
+        if not camera_ok:
             if self.ctx.execution("abort_on_ref_mismatch", True):
                 self.log.emit(
-                    "Skipping this loop - running steps against a camera that "
-                    "doesn't match the reference places units in the wrong "
-                    "spots (often at the far edge of the map). Fix the camera, "
-                    "re-capture the reference, or lower "
-                    "vision.ref_match_threshold if the score above looks "
-                    "right for a correct camera.")
+                    "Skipping this round — the camera doesn't match, so units "
+                    "would land in the wrong place. Fix the camera, re-capture "
+                    "the reference, or lower the match threshold if the score "
+                    "above looks right for a correct camera.")
                 record("abort")
                 return False
-            self.log.emit("WARNING: camera/reference mismatch and "
-                          "execution.abort_on_ref_mismatch is off - continuing, "
-                          "but every step coordinate is suspect.")
+            self.log.emit("Warning: the camera doesn't match, but 'skip on "
+                          "mismatch' is off — continuing anyway; placements "
+                          "may be wrong.")
 
         self._check_stop()
         self.setup.press_start_game(rect)

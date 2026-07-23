@@ -1,61 +1,101 @@
-"""Dashboard window: a short, full-width bar docked to the BOTTOM edge of the
-screen (Setup & Run, Readiness, Statistics, Webhooks, Current Process laid out
-side by side). main.py sizes it to the screen width and positions the Roblox
-window in the space ABOVE it, so the two never overlap. This replaces the old
-tall left-docked column, which ran off the bottom of the screen. The stage
-editor (canvas + Index grid) is its own separate window, opened on demand from
-the 'Stage editor' button.
+"""Dashboard: ONE full-screen frameless window shaped around the Roblox window.
+
+The game is pinned top-left; this window covers the whole screen with a
+click-through MASK cutting a hole exactly where the game is, so the right
+control column and the bottom log strip read as a single surface wrapping the
+game (rather than two separate windows). The hole is unpainted and click-through:
+real and synthetic clicks reach Roblox, and mss captures the true game pixels for
+the executor.
+
+main.py drives placement via place(game, screen) - called at startup (expected
+game rect), on attach, and from the window watchdog when the game is moved.
 """
 
-from PySide6.QtWidgets import QWidget, QHBoxLayout
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QRegion
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 
 from ui.panels import (
     DASHBOARD_QSS, LogPanel, ReadinessPanel, SetupRunPanel, StatsPanel,
     WebhookPanel, install_no_wheel_filter,
 )
 
-# Height of the bottom bar (px). The Roblox window is centered in the screen
-# area above this, so keep it small enough to leave room for a 720px client.
-BAR_H = 250
+# Layout geometry (px), matching the design mock on a 1920x1080 screen.
+MARGIN = 24        # gap from the screen edges
+GAP = 16           # gap between the game window and the docks, and between cards
+COL_W = 576        # right control-column width
+GAME_W = 1280      # forced Roblox client width (see core/window.py)
+GAME_H = 720
+
+# Retired (the bottom bar is gone); kept = 0 so any stale import still resolves.
+BAR_H = 0
 
 
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TD Macro")
-        self.setFixedHeight(BAR_H)
-        # dashRoot draws the accent hairline along the top edge (see the QSS);
-        # the 6px top margin keeps the panels off it.
         self.setObjectName("dashRoot")
+        # Frameless full-screen surface. Its own Exit button (and Alt+F4) closes
+        # the app; the mask (set in place()) is what carves out the game hole.
+        self.setWindowFlags(Qt.FramelessWindowHint)
         self.setStyleSheet(DASHBOARD_QSS)
         # App-wide: the mouse wheel must never change a spin box / combo value.
         install_no_wheel_filter()
 
-        root = QHBoxLayout(self)
-        root.setContentsMargins(8, 6, 8, 6)
-        root.setSpacing(7)
-
-        # Left to right across the bar, in the order the workflow uses them.
-        # Everything is width-capped to its content except the log, which
-        # stretches to fill whatever is left - on a 1920px screen that is most
-        # of the bar, which is what makes long log lines readable.
+        # Control column (right of the game). A transparent host so the window
+        # ground (#dashRoot) shows around the cards, not the generic widget bg.
+        self._column_host = QWidget(self)
+        self._column_host.setObjectName("colHost")
+        col = QVBoxLayout(self._column_host)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(GAP)
         self.setup_run = SetupRunPanel()
-        self.setup_run.setMinimumWidth(340)
-        self.setup_run.setMaximumWidth(420)
-        root.addWidget(self.setup_run)
+        col.addWidget(self.setup_run)
 
+        row = QHBoxLayout()
+        row.setSpacing(GAP)
         self.readiness = ReadinessPanel()
-        self.readiness.setFixedWidth(248)
-        root.addWidget(self.readiness)
-
+        row.addWidget(self.readiness, 1)
+        right = QVBoxLayout()
+        right.setSpacing(GAP)
         self.stats = StatsPanel()
-        self.stats.setFixedWidth(196)
-        root.addWidget(self.stats)
-
+        right.addWidget(self.stats)
         self.webhook = WebhookPanel()
-        self.webhook.setFixedWidth(210)
-        root.addWidget(self.webhook)
+        right.addWidget(self.webhook)
+        right.addStretch(1)
+        row.addLayout(right, 1)
+        col.addLayout(row, 1)
 
+        # Log strip (below the game), same transparent-host treatment.
+        self._log_host = QWidget(self)
+        self._log_host.setObjectName("logHost")
+        logl = QVBoxLayout(self._log_host)
+        logl.setContentsMargins(0, 0, 0, 0)
         self.log = LogPanel()
-        self.log.setMinimumWidth(260)
-        root.addWidget(self.log, 1)
+        logl.addWidget(self.log)
+
+    def place(self, game, screen):
+        """Fill `screen` (a QRect), cut a click-through hole at `game`
+        (x, y, w, h in screen px), and dock the control column to the right of
+        the game and the log strip beneath it.
+
+        All child/mask coordinates are window-relative (the window's top-left is
+        the screen's top-left)."""
+        self.setGeometry(screen)
+        sw, sh = screen.width(), screen.height()
+        # Game rect in window-relative coordinates.
+        rx, ry = game[0] - screen.x(), game[1] - screen.y()
+        gw, gh = game[2], game[3]
+
+        col_x = rx + gw + GAP
+        col_w = min(COL_W, max(320, sw - MARGIN - col_x))
+        self._column_host.setGeometry(col_x, MARGIN, col_w, sh - 2 * MARGIN)
+
+        log_y = ry + gh + GAP
+        log_h = max(120, sh - MARGIN - log_y)
+        self._log_host.setGeometry(rx, log_y, gw, log_h)
+
+        # The hole: unpainted + click-through, so Roblox shows through it and
+        # receives clicks, and mss reads the real game pixels beneath.
+        self.setMask(QRegion(0, 0, sw, sh).subtracted(QRegion(rx, ry, gw, gh)))
