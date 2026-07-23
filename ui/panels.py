@@ -362,6 +362,7 @@ class SetupRunPanel(QGroupBox):
     attach_requested = Signal()
     camera_test_requested = Signal()
     editor_requested = Signal()
+    new_profile_requested = Signal()
     load_requested = Signal()
     screenshot_requested = Signal()
     run_requested = Signal()
@@ -436,6 +437,13 @@ class SetupRunPanel(QGroupBox):
         self.btn_load.clicked.connect(self.load_requested.emit)
         row3.addWidget(self.btn_load, 1)
         v.addLayout(row3)
+
+        self.btn_new = QPushButton("New profile")
+        self.btn_new.setToolTip(
+            "Start a fresh, blank profile in the stage editor - capture a new "
+            "reference and build its steps from scratch.")
+        self.btn_new.clicked.connect(self.new_profile_requested.emit)
+        v.addWidget(self.btn_new)
 
         # Runs are always infinite - Stop / F12 is how one ends.
         self.btn_shot = QPushButton("Screenshot")

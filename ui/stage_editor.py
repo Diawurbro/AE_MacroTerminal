@@ -1113,6 +1113,27 @@ class StageEditor(QWidget):
         self.current_path = path
         self._status(f"Saved: {path}", "ok")
 
+    def new_profile(self):
+        """Reset the editor to a fresh, unsaved profile - blank steps, no
+        anchors, no reference image. Mirrors load_profile_path but builds an
+        empty StageProfile instead of reading one from disk, so 'New profile'
+        starts from a clean slate and the next Save writes a new file."""
+        self.profile = StageProfile()
+        self.current_path = None
+        self.stage_name.setText(self.profile.stage)
+        # Drop the old reference image so the canvas returns to its empty-state
+        # hint (show_placeholder no-ops while a pixmap is set).
+        self.canvas.scene_.clear()
+        self.canvas.markers.clear()
+        self.canvas.pixmap_item = None
+        self.canvas._anchor_items = []
+        self.canvas.show_placeholder("No reference image - click 'Capture ref'")
+        self._redraw_markers()
+        self._redraw_anchors()
+        self._refresh_calib_labels()
+        self._refresh_list()
+        self._status("New profile - capture a reference, then add steps.", "ok")
+
     def load_profile(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load profile", "profiles",
                                               "JSON (*.json)")

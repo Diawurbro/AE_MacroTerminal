@@ -177,6 +177,7 @@ class App:
         sr.attach_requested.connect(self.attach)
         sr.camera_test_requested.connect(self.test_camera_view)
         sr.editor_requested.connect(self.open_editor)
+        sr.new_profile_requested.connect(self.new_profile)
         sr.load_requested.connect(self.load_profile)
         sr.profile_selected.connect(self.load_profile_named)
         sr.screenshot_requested.connect(self.take_screenshot)
@@ -235,6 +236,14 @@ class App:
         self.editor.show()
         self.editor.raise_()
         self.editor.activateWindow()
+
+    def new_profile(self):
+        """Reset the editor to a blank profile and bring it to the front, so
+        'New profile' is a one-click way to start a fresh stage."""
+        self.editor.new_profile()
+        self.open_editor()
+        self.refresh_profile_list()
+        self.refresh_readiness()
 
     # ---------------- window ----------------
 
