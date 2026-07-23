@@ -2,7 +2,8 @@ window:
   client_width: 1280
   client_height: 720
   window_title: "Roblox"
-  window_class: "WINDOWSCLIENT"
+  window_class: "WINDOWSCLIENT"   # Windows only - ignored on mac
+  mac_process_name: "Roblox"      # mac only - matched against the owning process name
 
 # Right-drag top-down technique (HANDOFF 2.22, was Shift Lock in 2.3): zoom
 # fully in (hard clamp), right-button-drag straight down (hard clamp), zoom
