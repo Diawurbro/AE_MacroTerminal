@@ -1,12 +1,15 @@
 # Roblox TD Macro
 
-เครื่องมือ automation สำหรับเกม tower defense บน Roblox (Windows only)
+Automation tool for a Roblox tower-defense game (Windows only).
 
-สถานะปัจจุบัน: **Phase 1 + 2 เสร็จแล้ว** — window manager, control panel, stage editor
+Status: **feature-complete, pre-release** — window manager, dashboard dock UI,
+stage editor, OCR-gated executor (place/upgrade/sell/ability/click/wait),
+win/loss detection with auto-repeat, stats DB, Discord webhook. Not yet
+verified against a live game session — see [Before first release](#before-first-release).
 
 ---
 
-## ติดตั้ง
+## Install
 
 ```bat
 cd roblox_td_macro
@@ -15,97 +18,148 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-ถ้าจะใช้ OCR (Phase 3) ต้องลง Tesseract แยกด้วย:
+OCR (cash/wave reads, priority verification) needs Tesseract installed
+separately:
 https://github.com/UB-Mannheim/tesseract/wiki
 
 ---
 
-## รัน
+## Run
 
-**วิธีที่ 1 — ดับเบิลคลิก `run.bat`** (แนะนำ)
+**Option 1 — double-click `run.bat`** (recommended)
 
-ครั้งแรกจะสร้าง venv + ลง dependency ให้เอง ใช้เวลาสักพัก ครั้งต่อไปเปิดทันที
+First run creates the venv and installs dependencies for you; takes a bit.
+Later runs open immediately.
 
-**วิธีที่ 2 — สั่งเอง**
+**Option 2 — run it yourself**
 
 ```bat
 python main.py
 ```
 
-จะมีแผงสองอันโผล่มา ลากย้ายได้ด้วยการคลิกค้างที่พื้นหลังแผง
+A single full-screen dashboard opens: it frames the Roblox window with a
+click-through hole cut exactly over it, docks the control column to the
+right, and the log strip beneath. Roblox itself isn't moved by this window —
+attaching (below) is what resizes/positions the actual game window.
 
 ---
 
-## สร้าง run.exe
+## Build `run.exe`
 
-ดับเบิลคลิก **`build.bat`** รอ 3-8 นาที จะได้ `dist\run\run.exe`
+Double-click **`build.bat`**, wait 3-8 minutes, get `dist\run\run.exe`.
 
-ต้องเอาโฟลเดอร์ `dist\run` ไปทั้งอัน ไม่ใช่แค่ไฟล์ exe เพราะ Qt DLL อยู่ในนั้น
+Take the whole `dist\run` folder, not just the exe — the Qt DLLs live in
+there.
 
-ข้อควรทราบ:
+Notes:
 
-- ขนาดราว 180-250 MB เพราะ PySide6 + OpenCV
-- Windows Defender อาจแจ้งเตือน false positive — เป็นเรื่องปกติของ PyInstaller ที่ไม่ได้เซ็น certificate ให้ add exclusion
-- `config.yaml` และโฟลเดอร์ `profiles` จะอยู่ข้าง exe แก้ไขได้โดยไม่ต้อง build ใหม่
-- ถ้าเปิดแล้วปิดทันทีไม่มี error ให้แก้ `run.spec` เป็น `console=True` แล้ว build ใหม่ จะเห็น traceback
-
----
-
-## ขั้นตอนใช้งาน
-
-1. เปิด Roblox แล้วเข้าเกม
-2. กด **Attach + center window** — โปรแกรมจะย่อหน้าต่าง Roblox ให้ client area เป็น 1280×720 พอดี แล้วจัดกลางจอ แผงควบคุมจะไปเกาะซ้าย-ขวาอัตโนมัติ
-3. เข้า stage ที่ต้องการ ใช้ teleport to spawn ของเกม แล้วปรับกล้องให้เข้าที่
-4. กด **Open stage editor** → ตั้งชื่อ stage → กด **Capture ref** โปรแกรมจะเซฟภาพหน้าจอเป็น reference
-5. คลิกบนภาพเพื่อปักหมุด แต่ละหมุดตั้งค่าได้:
-   - **Action**: place / upgrade / sell / ability / wait
-   - **Slot**: ช่องยูนิตบน hotbar (สำหรับ place)
-   - **Times**: จำนวนครั้งที่กด upgrade
-   - **Target step**: หมุด upgrade อ้างอิงหมุด place ตัวไหน
-   - **Wait for**: เงื่อนไขก่อนทำ — cash / wave / delay
-6. ลากหมุดบนภาพเพื่อขยับตำแหน่งได้ ค่าพิกัดอัปเดตอัตโนมัติ
-7. กด **Save** → ได้ไฟล์ `profiles/xxx.json`
+- Roughly 180-250 MB because of PySide6 + OpenCV.
+- Windows Defender may flag a false positive — normal for unsigned
+  PyInstaller builds, add an exclusion.
+- `config.yaml` and the `profiles` folder sit next to the exe and can be
+  edited without rebuilding.
+- If it opens and closes immediately with no visible error, set
+  `console=True` in `run.spec` and rebuild to see the traceback.
 
 ---
 
-## ตั้งค่าในเกมก่อนใช้ (สำคัญมาก)
+## Usage — first-time setup, in order
 
-ถ้าเปลี่ยนค่าพวกนี้ทีหลัง profile ที่ทำไว้จะพังทันที
+1. Launch Roblox, enter the game, go to the stage you want to farm.
+2. In Roblox settings: display mode **windowed**, Windows display scaling
+   **100%** (Settings > Display > Scale). The macro clicks fixed positions —
+   fullscreen or non-100% scaling breaks them.
+3. Click **Attach game window** — Roblox's client area is resized to
+   1280×720 and the dashboard docks around it. Readiness panel should show
+   "Roblox connected" in green at 1280×720.
+4. Click **Test camera view** — Roblox zooms to the top-down farming angle.
+5. Click **Stage editor** → name the stage → **Capture ref** to snapshot it
+   as the reference image.
+6. In the editor's **Calibrate** tab: **Set point** + click each button on
+   the image (upgrade / sell / confirm / priority / Start Game); **Set box**
+   + drag over the cash number, wave number, and the Win/Loss banner area.
+7. On the **Steps** tab: **+ Add step** for each unit, click the image where
+   it goes, then set:
+   - **Action**: place / click / upgrade / sell / ability / wait
+   - **Slot**: hotbar unit slot (place/click) — `none` for a bare click with
+     no arming
+   - **Times**: upgrade click count
+   - **Target step**: which placed unit an upgrade/sell/ability refers to
+   - **Wait for**: precondition before acting — cash / wave / delay
+
+   Drag pins on the image to reposition; coordinates update automatically.
+8. Click **Save** → writes `profiles/xxx.json`.
+9. Install Tesseract-OCR (link above) so cash/wave waits and priority
+   verification work; if not on PATH, set `vision.tesseract_cmd` in
+   `config.yaml`.
+10. Back on the dashboard, click **Re-check**, fix any red readiness items,
+    then press **Start (F9)**. Press **F12** for an emergency stop.
+
+---
+
+## In-game settings (critical — set before use)
+
+Changing any of these after a profile is built will break it immediately:
 
 - Camera Mode: **Classic**
 - Movement Mode: **Keyboard**
-- Shift Lock Switch: **ปิด**
-- Graphics Quality: ล็อกไว้ ห้ามเปลี่ยน
-- Full screen: **ปิด** (ต้องเป็น windowed เท่านั้น)
+- Shift Lock: **OFF**
+- Graphics Quality: locked, do not change
+- Full screen: **OFF** (windowed only)
 
 ---
 
-## โครงสร้าง
+## Structure
 
 ```
-core/window.py        หา + จัดตำแหน่งหน้าต่าง Roblox
-core/input_driver.py  SendInput สำหรับ mouse/keyboard/scroll/drag
-vision/capture.py     mss capture + template matching
-data/profile.py       โมเดล stage profile + save/load JSON
-ui/panels.py          แผงควบคุมซ้าย + แผงสถานะขวา
-ui/stage_editor.py    หน้าปักหมุดบนภาพ stage
-main.py               จุดเริ่ม
-config.yaml           ตั้งค่าทั้งหมด
+core/window.py          find + position/pin the Roblox window
+core/input_driver.py     SendInput for mouse/keyboard/scroll/drag
+core/hotbar.py           unit arming — number-key taps (default) or card clicks
+core/unit_panel.py       select/upgrade/sell/deselect on the unit panel
+core/executor.py         run loop — OCR gating, camera normalize, repeats
+core/step_runner.py      per-step dispatch to core/actions/*
+core/actions/            place, click, upgrade, sell, ability, wait
+core/match_flow.py       win/loss detection, reward-screen clearing, repeat
+core/stage_setup.py      camera normalize + reference-image verification
+core/ocr.py              cash/wave/fraction OCR readers
+core/run_recorder.py     stats DB writer
+core/notify.py           Discord webhook
+vision/capture.py        mss capture + template matching
+vision/result_detector.py   win/loss banner + result-screen template match
+vision/reward_screen.py  reward-screen clear + Repeat-button click
+data/profile.py          stage profile model + save/load JSON
+data/stats.py            SQLite stats
+ui/main_window.py        full-screen dashboard dock (frames the game window)
+ui/panels.py             control column + log panel
+ui/stage_editor.py       pin-and-configure stage editor
+main.py                  entry point, dock layout, app wiring
+config.yaml              all settings (gitignored; seeded from config.example.yaml)
 ```
 
 ---
 
-## ยังไม่ได้ทำ
+## Before first release
 
-| Phase | เนื้อหา |
-|---|---|
-| 2.5 | Teleport + camera normalize + ref image verify |
-| 3 | Executor — OCR gating, place/upgrade, post-place verify |
-| 4 | Win/loss detector + auto restart |
-| 5 | SQLite stats + Discord webhook |
+Full findings live in `RELEASE_REVIEW.md` (bug list) and `HANDOFF.md`
+(session history). Current blockers:
+
+- [ ] Sell flow verified end-to-end (may be a single click, no confirm
+      dialog — unconfirmed)
+- [ ] One clean supervised live loop, win and loss both handled
+- [ ] `build.bat` output smoke-tested on a clean machine
+
+Should-have before wider use:
+- [ ] Minimal automated test suite (placement retry, priority cycle, OCR
+      parsing — none exists yet)
+- [ ] Shared `Capture` instance cleanup verified under a long session
+
+Deliberately out of scope for v1: session-level pacing/breaks, ghost/phantom
+placement detection, DPI scaling other than 100%, multi-resolution support.
 
 ---
 
-## ข้อควรทราบ
+## Note
 
-Roblox Terms of Use ห้าม automation ในระดับแพลตฟอร์ม การอนุญาตจากเจ้าของเกมไม่ครอบคลุมข้อนี้ ความเสี่ยงบัญชีเป็นของผู้ใช้เอง แนะนำให้ใช้ alt account
+Roblox's Terms of Use prohibit automation at the platform level. Permission
+from the game owner does not cover this. Account risk is on you — an alt
+account is recommended.
