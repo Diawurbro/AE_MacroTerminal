@@ -124,6 +124,11 @@ execution:
   place_settle_reads: 6
   # Settle time after each click, for the unit panel to open (2.26).
   place_select_wait_ms: 400
+  # After a placement click, how long to watch for proof it actually bought a
+  # unit: the panel opening, OR cash dropping below what it was just before
+  # the click. The cash signal is what stops a placement that worked but whose
+  # panel didn't open from being retried into a second unit on the same spot.
+  place_verify_wait_ms: 900
   # Selecting a placed unit: how many times to click it, and how long to wait
   # for its panel after each click. Clicks on units land only intermittently
   # (placements routinely need several attempts for the same reason), and the

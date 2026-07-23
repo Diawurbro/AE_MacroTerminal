@@ -2,6 +2,7 @@
 
 import time
 
+from core import ocr
 from vision import capture as vcap
 
 from .base import StepAction, Target
@@ -76,6 +77,45 @@ class PlaceAction(StepAction):
         park = self.ctx.execution("cursor_park", [0.02, 0.5])
         self.ctx.drv.move(*rect.to_screen(*park))
 
+    def _read_cash(self, rect) -> int | None:
+        """Current cash, or None if it can't be read."""
+        roi = self.ctx.anchor("cash_roi")
+        if not roi or not ocr.READY:
+            return None
+        return ocr.read_int(self.ctx.cap.grab_roi(rect, roi))
+
+    def _landed(self, rect, cash_before, timeout_ms: int) -> bool:
+        """Did the placement click we just issued actually buy a unit?
+
+        Polls TWO independent signals and takes either:
+
+        - the unit panel opening, because placing auto-selects the new unit;
+        - cash going DOWN from what it was immediately before the click.
+
+        The cash signal is what stops this step stacking units. Every check
+        here used to run through the panel, so a placement that worked but
+        whose panel didn't open - the click lands only intermittently, and
+        the panel takes a variable moment to draw - was read as failure and
+        the loop placed ANOTHER unit on the same spot, burning cash and
+        reporting it as "placed after N tries". Cash can only go up on its
+        own (income, kills, selling), so a drop within a moment of our own
+        click means the purchase went through, whatever the panel is doing.
+        Both signals are optional: with neither available this returns False
+        and the caller falls back to watching the map."""
+        deadline = time.monotonic() + timeout_ms / 1000.0
+        can_panel = self.ctx.can_check_panel
+        while True:
+            if can_panel and self.ctx.panel_shows_unit(rect):
+                return True
+            if cash_before is not None:
+                now = self._read_cash(rect)
+                if now is not None and now < cash_before:
+                    return True
+            if time.monotonic() >= deadline:
+                return False
+            self.ctx.check_stop()
+            self.ctx.drv.wait(100)
+
     # ---------------- the retry loop ----------------
 
     def _unit_is_there(self, rect, target: Target, use_panel, roi, baseline) -> bool:
@@ -111,13 +151,15 @@ class PlaceAction(StepAction):
         speed because the usual cause of failure is "not enough cash yet",
         which is a wait, not an error (HANDOFF 2.25).
 
-        **Every iteration checks BEFORE it places, never after.** Verifying
-        after the click means a false negative re-clicks an occupied spot and
-        places a SECOND unit - which is what happened on a real run: five
-        units stacked where one was wanted, reported as "placed on attempt 5"
-        (HANDOFF 2.29). Checking first makes that impossible: a placement
-        click is only ever issued at a spot just confirmed empty. The cost is
-        one cheap select-click before the first placement.
+        **Checks before placing AND verifies its own click before looping.**
+        Stacking units on one spot is the failure this guards against - five
+        units where one was wanted, reported as "placed on attempt 5"
+        (HANDOFF 2.29). The pre-check keeps a placement click from ever being
+        issued at an occupied spot; the post-click verification (_landed)
+        keeps a placement that DID work from being retried because its panel
+        happened not to open. Verifying only before, as this did, left that
+        second hole wide open: every signal ran through the panel, so an
+        unopened panel looked exactly like a failed placement.
 
         Re-arms the hotbar card before every placement click, not just the
         first. A click that fails to place (bad terrain, an overlay in the
@@ -162,22 +204,21 @@ class PlaceAction(StepAction):
                 # Nothing landed last time. Almost always "can't afford it
                 # yet", so wait rather than burning attempts at click speed.
                 self.ctx.drv.wait(interval)
+            # Read cash IMMEDIATELY before the click - _landed compares
+            # against it to spot the purchase.
+            cash_before = self._read_cash(rect)
             self.hotbar.select(rect, step.slot)
             self.ctx.drv.click(target.sx, target.sy)
             self.ctx.drv.wait(self.ctx.execution("place_select_wait_ms", 400))
             placed += 1
-            # Fast path: placing auto-selects the new unit, so the panel
-            # lighting up right after OUR placement click is the verification.
-            # Safe to trust: the check that preceded this click confirmed
-            # nothing was selected, so a lit panel can only be the unit just
-            # placed. Skips the next check's select-click and the toggle-off
-            # recovery it would need (HANDOFF 2.38).
-            if use_panel:
-                self._park_cursor(rect)
-                if self.ctx.panel_shows_unit(rect):
-                    if placed > 1:
-                        self.ctx.log(f"Step {step.id}: unit placed (after {placed} tries).")
-                    return True
+            # Verify OUR click before looping, so a placement that worked is
+            # never followed by a second one on the same spot.
+            self._park_cursor(rect)
+            if self._landed(rect, cash_before,
+                            self.ctx.execution("place_verify_wait_ms", 900)):
+                if placed > 1:
+                    self.ctx.log(f"Step {step.id}: unit placed (after {placed} tries).")
+                return True
 
         if use_panel:
             why = "you probably never had enough cash"
