@@ -654,7 +654,7 @@ class StageEditor(QWidget):
         tv.addWidget(cap_all)
 
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["#", "X", "Y", "UNIT", "WHAT TO DO"])
+        self.table.setHorizontalHeaderLabels(["#", "X", "Y", "UNIT", "ACTION"])
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -680,10 +680,10 @@ class StageEditor(QWidget):
 
         head = QHBoxLayout()
         head.setSpacing(6)
-        lbl_steps = QLabel("THIS RUN")
+        lbl_steps = QLabel("STEP SEQUENCE")
         lbl_steps.setObjectName("sectionHead")
         head.addWidget(lbl_steps)
-        self.lbl_step_count = QLabel("nothing added yet")
+        self.lbl_step_count = QLabel("no steps yet")
         self.lbl_step_count.setObjectName("caption")
         head.addWidget(self.lbl_step_count)
         head.addStretch(1)
