@@ -571,24 +571,24 @@ class App:
         checks = []
 
         if not self.rect:
-            checks.append(("Roblox attached", "bad",
+            checks.append(("Roblox connected", "bad",
                            "Open the game, then click 'Attach game window'."))
         else:
             want_w = self.cfg["window"]["client_width"]
             want_h = self.cfg["window"]["client_height"]
             if (self.rect.w, self.rect.h) != (want_w, want_h):
-                checks.append(("Roblox attached", "warn",
+                checks.append(("Roblox connected", "warn",
                                f"Window is {self.rect.w}×{self.rect.h}, needs {want_w}×{want_h}. "
                                "Use windowed mode and 100% display scaling."))
             else:
-                checks.append(("Roblox attached", "ok", f"{self.rect.w}×{self.rect.h}."))
+                checks.append(("Roblox connected", "ok", f"{self.rect.w}×{self.rect.h}."))
 
         n = len(self.profile.steps)
         if n == 0:
-            checks.append(("Profile has steps", "bad",
+            checks.append(("Steps added", "bad",
                            "Open the stage editor and add some steps."))
         else:
-            checks.append(("Profile has steps", "ok", f"{n} step(s) loaded."))
+            checks.append(("Steps added", "ok", f"{n} step(s) loaded."))
 
         # Slots are CLICKED now, not typed (HANDOFF 2.22), so a slot number
         # the configured bar doesn't cover has no position at all - the step
@@ -617,9 +617,9 @@ class App:
                            "Connect Roblox, test the camera, then capture a reference image in the editor."))
 
         if self._anchors_calibrated():
-            checks.append(("Buttons/HUD calibrated", "ok", "Calibrated."))
+            checks.append(("Buttons & HUD calibrated", "ok", "Calibrated."))
         else:
-            checks.append(("Buttons/HUD calibrated", "warn",
+            checks.append(("Buttons & HUD calibrated", "warn",
                            "Using default positions — fine-tune them in the editor's Calibrate tab."))
 
         tdir = os.path.join(BASE, "vision", "templates")

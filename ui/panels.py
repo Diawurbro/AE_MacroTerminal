@@ -1,5 +1,5 @@
 """Dashboard widgets for the bottom bar (Setup & Run, Readiness, Statistics,
-Webhooks, Current Process) plus DASHBOARD_QSS - the one dark theme shared with
+Webhooks, Activity Log) plus DASHBOARD_QSS - the one dark theme shared with
 the stage editor so both windows read as a single system.
 
 Everything here has to stay legible inside a BAR_H-tall strip, so the visual
@@ -300,7 +300,7 @@ class LogPanel(QGroupBox):
              "teleporting", "waiting", "exiting", "reference match")
 
     def __init__(self):
-        super().__init__("CURRENT PROCESS")
+        super().__init__("ACTIVITY LOG")
         v = QVBoxLayout(self)
         v.setContentsMargins(8, 4, 8, 7)
         v.setSpacing(4)
