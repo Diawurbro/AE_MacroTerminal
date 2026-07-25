@@ -558,8 +558,10 @@ class StageEditor(QWidget):
         self._rows: list[StepRow] = []
 
         self.setWindowTitle("Stage editor")
-        self.resize(1260, 780)
-        self.setMinimumSize(900, 560)
+        # Bigger by default so the reference image - where the actual clicking
+        # and box-dragging happens - is large enough to place things precisely.
+        self.resize(1600, 940)
+        self.setMinimumSize(1000, 600)
         self.setStyleSheet(DASHBOARD_QSS)
         # Wheel must never change a spin box / combo value - every row of the
         # steps table is four of them.
@@ -630,6 +632,9 @@ class StageEditor(QWidget):
         split.addWidget(left)
 
         side = QWidget()
+        # Floor so the 5-column steps table stays readable when the image side
+        # takes the extra width.
+        side.setMinimumWidth(460)
         sl = QVBoxLayout(side)
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(6)
@@ -695,7 +700,12 @@ class StageEditor(QWidget):
         sl.addWidget(self.tabs, 1)
 
         split.addWidget(side)
-        split.setSizes([700, 560])
+        # Image side takes the larger share, and keeps taking extra space when
+        # the window grows (stretch 3 vs 2), so making the window bigger makes
+        # the reference image bigger rather than widening the panel.
+        split.setSizes([1080, 500])
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
         root.addWidget(split, 1)
 
         root.addWidget(hsep())
