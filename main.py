@@ -216,7 +216,7 @@ class App:
         except Exception as e:
             self.window.log.write(f"Global hotkeys unavailable: {e}")
 
-        self.window.log.write("Ready. Click 'Attach game window' to begin.")
+        self.window.log.write("Ready. Click 'Attach' to begin.")
         self.refresh_profile_list()
         self.refresh_readiness()
 
@@ -544,9 +544,9 @@ class App:
             "2. In Roblox Settings, set the display to WINDOWED mode and set "
             "Windows display scaling to 100% (Settings > Display > Scale). The "
             "macro clicks fixed positions - fullscreen/scaling breaks them.\n\n"
-            "3. Click 'Attach game window'. The Readiness panel should show "
+            "3. Click 'Attach'. The Readiness panel should show "
             "'Roblox connected' in green at 1280×720.\n\n"
-            "4. Click 'Test camera view' - Roblox zooms to the top-down angle.\n\n"
+            "4. Click 'Camera view' - Roblox zooms to the top-down angle.\n\n"
             "5. Click 'Stage editor', then 'Capture ref' to snapshot the stage.\n\n"
             "6. In the editor's 'Calibrate' tab, click 'Set point' and click each "
             "button on the image (upgrade / sell / confirm / priority / Start "
@@ -572,7 +572,7 @@ class App:
 
         if not self.rect:
             checks.append(("Roblox connected", "bad",
-                           "Open the game, then click 'Attach game window'."))
+                           "Open the game, then click 'Attach'."))
         else:
             want_w = self.cfg["window"]["client_width"]
             want_h = self.cfg["window"]["client_height"]

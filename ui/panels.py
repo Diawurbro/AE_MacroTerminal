@@ -412,7 +412,7 @@ class SetupRunPanel(QGroupBox):
         prof_row.addWidget(self.lbl_profile)
         v.addLayout(prof_row)
 
-        self.btn_attach = QPushButton("Attach game window")
+        self.btn_attach = QPushButton("Attach")
         self.btn_attach.setMinimumHeight(42)
         self.btn_attach.setToolTip(
             "Find Roblox, resize it to 1280×720, and dock this dashboard "
@@ -422,7 +422,7 @@ class SetupRunPanel(QGroupBox):
 
         row3 = QHBoxLayout()
         row3.setSpacing(8)
-        self.btn_camera = QPushButton("Test camera view")
+        self.btn_camera = QPushButton("Camera view")
         self.btn_camera.setToolTip(
             "Preview the top-down camera the macro uses, so you can check it "
             "before capturing a reference image.")
@@ -432,7 +432,7 @@ class SetupRunPanel(QGroupBox):
         self.btn_editor.setToolTip("Open the stage editor to build or edit your steps.")
         self.btn_editor.clicked.connect(self.editor_requested.emit)
         row3.addWidget(self.btn_editor, 1)
-        self.btn_load = QPushButton("Load profile…")
+        self.btn_load = QPushButton("Load")
         self.btn_load.setToolTip("Open a saved profile from a file.")
         self.btn_load.clicked.connect(self.load_requested.emit)
         row3.addWidget(self.btn_load, 1)
@@ -555,7 +555,7 @@ class SetupRunPanel(QGroupBox):
 
     def set_camera_testing(self, testing: bool):
         self._cam_testing = testing
-        self.btn_camera.setText("Testing camera..." if testing else "Test camera view")
+        self.btn_camera.setText("Testing..." if testing else "Camera view")
         self._apply_enabled()
 
     def set_press_start_game(self, on: bool):

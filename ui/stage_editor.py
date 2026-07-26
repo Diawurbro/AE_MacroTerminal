@@ -558,10 +558,8 @@ class StageEditor(QWidget):
         self._rows: list[StepRow] = []
 
         self.setWindowTitle("Stage editor")
-        # Bigger by default so the reference image - where the actual clicking
-        # and box-dragging happens - is large enough to place things precisely.
-        self.resize(1600, 940)
-        self.setMinimumSize(1000, 600)
+        self.resize(1260, 780)
+        self.setMinimumSize(900, 560)
         self.setStyleSheet(DASHBOARD_QSS)
         # Wheel must never change a spin box / combo value - every row of the
         # steps table is four of them.
@@ -632,9 +630,6 @@ class StageEditor(QWidget):
         split.addWidget(left)
 
         side = QWidget()
-        # Floor so the 5-column steps table stays readable when the image side
-        # takes the extra width.
-        side.setMinimumWidth(460)
         sl = QVBoxLayout(side)
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(6)
@@ -646,12 +641,6 @@ class StageEditor(QWidget):
         tv = QVBoxLayout(steps_tab)
         tv.setContentsMargins(6, 6, 6, 6)
         tv.setSpacing(5)
-        cap_all = QLabel("What the macro does, in order. Select a row, then click "
-                         "the image to set its spot. To upgrade a unit, add a "
-                         "row at the SAME spot and pick how many levels.")
-        cap_all.setObjectName("caption")
-        cap_all.setWordWrap(True)
-        tv.addWidget(cap_all)
 
         self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(["#", "X", "Y", "UNIT", "ACTION"])
@@ -680,7 +669,7 @@ class StageEditor(QWidget):
 
         head = QHBoxLayout()
         head.setSpacing(6)
-        lbl_steps = QLabel("STEP SEQUENCE")
+        lbl_steps = QLabel("SEQUENCE")
         lbl_steps.setObjectName("sectionHead")
         head.addWidget(lbl_steps)
         self.lbl_step_count = QLabel("no steps yet")
@@ -700,12 +689,7 @@ class StageEditor(QWidget):
         sl.addWidget(self.tabs, 1)
 
         split.addWidget(side)
-        # Image side takes the larger share, and keeps taking extra space when
-        # the window grows (stretch 3 vs 2), so making the window bigger makes
-        # the reference image bigger rather than widening the panel.
-        split.setSizes([1080, 500])
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
+        split.setSizes([700, 560])
         root.addWidget(split, 1)
 
         root.addWidget(hsep())
@@ -725,9 +709,9 @@ class StageEditor(QWidget):
         h.setContentsMargins(2, 0, 2, 0)
         h.setSpacing(12)
         key = QLabel(
-            f"<span style='color:{COLOR_PLACE.name()}'>&#9679;</span> unit placement"
-            f" &nbsp; <span style='color:{COLOR_OTHER.name()}'>&#9679;</span> upgrade step"
-            f" &nbsp; <span style='color:{COLOR_ANCHOR.name()}'>&#9679;</span> calibrated spot")
+            f"<span style='color:{COLOR_PLACE.name()}'>&#9679;</span> placement"
+            f" &nbsp; <span style='color:{COLOR_OTHER.name()}'>&#9679;</span> upgrade"
+            f" &nbsp; <span style='color:{COLOR_ANCHOR.name()}'>&#9679;</span> calibrated")
         key.setTextFormat(Qt.RichText)
         h.addWidget(key)
         h.addStretch(1)
@@ -745,7 +729,7 @@ class StageEditor(QWidget):
         v = QVBoxLayout(box)
         v.setContentsMargins(10, 6, 10, 8)
         text = QLabel(
-            "1.  On the dashboard: Attach + center window, then Test camera view.<br>"
+            "1.  On the dashboard: Attach + center window, then Camera view.<br>"
             "2.  Here: <b>Capture ref</b> - takes the picture everything else is "
             "positioned against.<br>"
             "3.  <b>Calibrate</b> tab: click each game button, drag a box round "
